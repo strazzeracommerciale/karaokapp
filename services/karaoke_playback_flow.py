@@ -9,6 +9,7 @@ from utils.text import clean_title
 
 if TYPE_CHECKING:
     from services.app_mode_service import AppModeService
+    from services.dj_playback_flow import DjPlaybackFlow
     from services.filler_service import FillerService
     from services.library_service import LibraryService
     from services.player_service import PlayerService
@@ -21,10 +22,10 @@ logger = logging.getLogger(__name__)
 class KaraokePlaybackFlow(QObject):
     """Coordina coda, player e sottofondo nel flusso karaoke annuncio → play.
 
-    I comandi sono no-op se AppModeService.get_mode() != 'karaoke'.
-    Gli handler degli eventi player (track_ended, ecc.) non applicano il
-    guard sui comandi utente: il brano in corso deve completarsi anche se
-    la modalità cambia a metà riproduzione.
+    I comandi sono no-op se AppModeService.get_mode() != 'karaoke' oppure se
+    DjPlaybackFlow possiede il player (ownership indipendente dalla modalità).
+    Gli handler eventi player ignorano gli eventi quando il DJ possiede il
+    playback, così auto-advance e filler restano gestiti dal flow DJ.
     """
 
     player_reset_requested = pyqtSignal()
@@ -49,6 +50,7 @@ class KaraokePlaybackFlow(QObject):
         self._search = search_service
         self._filler = filler_service
         self._library = library_service
+        self._dj_flow: "DjPlaybackFlow | None" = None
         self._pending_track: dict | None = None
         self._current_playing_track: dict | None = None
 
@@ -64,6 +66,10 @@ class KaraokePlaybackFlow(QObject):
         """Collega o scollega il FillerService dopo il bootstrap."""
         self._filler = filler_service
 
+    def set_dj_flow(self, dj_playback_flow: "DjPlaybackFlow | None") -> None:
+        """Collega il flow DJ per verificare l'ownership condivisa del player."""
+        self._dj_flow = dj_playback_flow
+
     def pending_track(self) -> dict | None:
         """Restituisce il brano annunciato in attesa di Play."""
         return self._pending_track
@@ -78,7 +84,7 @@ class KaraokePlaybackFlow(QObject):
 
     def play_pause(self) -> None:
         """Avvia il brano annunciato se presente, altrimenti alterna pausa/ripresa."""
-        if not self._is_karaoke_active():
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
             return
         if self._player is None:
             return
@@ -97,7 +103,7 @@ class KaraokePlaybackFlow(QObject):
 
     def stop(self) -> None:
         """Ferma la riproduzione e avvia il sottofondo."""
-        if not self._is_karaoke_active():
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
             return
         if self._player is not None:
             self._player.stop()
@@ -107,13 +113,13 @@ class KaraokePlaybackFlow(QObject):
 
     def skip(self) -> None:
         """Avanza al prossimo cantante in coda."""
-        if not self._is_karaoke_active():
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
             return
         self._do_advance_next()
 
     def queue_play(self, queue_id: int) -> None:
         """Riproduce un brano arbitrario richiamato dalla coda."""
-        if not self._is_karaoke_active():
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
             return
         if self._player is None:
             return
@@ -126,12 +132,14 @@ class KaraokePlaybackFlow(QObject):
 
     def advance_next(self) -> None:
         """Annuncia il prossimo cantante senza avviare il brano."""
-        if not self._is_karaoke_active():
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
             return
         self._do_advance_next()
 
     def on_track_started(self, track: dict) -> None:
         """Gestisce l'avvio riproduzione: sottofondo e contatori libreria."""
+        if self._is_dj_playback_active():
+            return
         if self._filler is not None:
             self._filler.interrupt()
         self._current_playing_track = track
@@ -147,6 +155,8 @@ class KaraokePlaybackFlow(QObject):
 
     def on_track_ended(self) -> None:
         """Avanza automaticamente alla fine del brano."""
+        if self._is_dj_playback_active():
+            return
         self.player_reset_requested.emit()
         if self._filler is not None:
             self._filler.start()
@@ -154,6 +164,8 @@ class KaraokePlaybackFlow(QObject):
 
     def on_track_failed(self, track: dict, reason: str) -> None:
         """Gestisce un brano non riproducibile."""
+        if self._is_dj_playback_active():
+            return
         self.player_reset_requested.emit()
         if self._filler is not None:
             self._filler.start()
@@ -200,6 +212,10 @@ class KaraokePlaybackFlow(QObject):
     def _is_karaoke_active(self) -> bool:
         """True se la modalità attiva è karaoke."""
         return self._app_mode.get_mode() == "karaoke"
+
+    def _is_dj_playback_active(self) -> bool:
+        """True se il flow DJ possiede il player condiviso."""
+        return self._dj_flow is not None and self._dj_flow.is_playback_active()
 
     def _trigger_download_if_needed(self, item: dict) -> None:
         """Avvia download silenzioso per risultati YouTube non ancora locali."""

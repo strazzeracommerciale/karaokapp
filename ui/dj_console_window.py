@@ -93,6 +93,10 @@ class DjConsoleWindow(QWidget):
         self._tabs.addTab(self._search_widget, "Ricerca")
         root.addWidget(self._tabs)
 
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet("color: #9a9aa6;")
+        root.addWidget(self._status_label)
+
     def _build_header(self) -> QHBoxLayout:
         """Barra superiore: pill modalità, mini player e chiudi."""
         bar = QHBoxLayout()
@@ -124,6 +128,10 @@ class DjConsoleWindow(QWidget):
         self._mini_skip_btn = QPushButton("Skip")
         self._mini_skip_btn.clicked.connect(self._dj_flow.skip)
         bar.addWidget(self._mini_skip_btn)
+
+        self._mini_stop_btn = QPushButton("Stop")
+        self._mini_stop_btn.clicked.connect(self._dj_flow.stop)
+        bar.addWidget(self._mini_stop_btn)
 
         close_btn = QPushButton("Chiudi")
         close_btn.setObjectName("secondaryButton")
@@ -162,22 +170,17 @@ class DjConsoleWindow(QWidget):
         self._download.download_progress.connect(self._on_download_progress)
         self._download.download_complete.connect(self._on_download_complete)
 
-        if self._player is not None:
-            self._player.track_started.connect(self._on_track_started)
-            self._player.track_ended.connect(self._on_track_ended)
+        try:
+            self._dj_flow.track_info_updated.disconnect(self._on_track_info_updated)
+            self._dj_flow.status_message.disconnect(self._on_status_message)
+        except TypeError:
+            pass
+        self._dj_flow.track_info_updated.connect(self._on_track_info_updated)
+        self._dj_flow.status_message.connect(self._on_status_message)
 
     def set_player(self, player_service: "PlayerService | None") -> None:
-        """Collega il PlayerService dopo il bootstrap VLC."""
-        if self._player is not None:
-            try:
-                self._player.track_started.disconnect(self._on_track_started)
-                self._player.track_ended.disconnect(self._on_track_ended)
-            except TypeError:
-                pass
+        """Conserva il riferimento al player; la UI DJ usa i segnali del flow."""
         self._player = player_service
-        if self._player is not None:
-            self._player.track_started.connect(self._on_track_started)
-            self._player.track_ended.connect(self._on_track_ended)
 
     def showEvent(self, event) -> None:
         """Ripristina geometria salvata al primo show."""
@@ -211,6 +214,7 @@ class DjConsoleWindow(QWidget):
         dj_active = self._app_mode.get_mode() == "dj"
         self._mini_play_btn.setEnabled(dj_active)
         self._mini_skip_btn.setEnabled(dj_active)
+        self._mini_stop_btn.setEnabled(dj_active)
         if not dj_active:
             self._track_title.setText("Nessun brano")
             self._track_artist.setText("(modalità karaoke attiva)")
@@ -316,16 +320,13 @@ class DjConsoleWindow(QWidget):
         self._refresh_playlists()
         logger.info("Runtime salvato come playlist '%s' (%d brani)", name.strip(), added)
 
-    def _on_track_started(self, track: dict) -> None:
-        """Mostra titolo/artista nel mini player se la modalità DJ è attiva."""
+    def _on_track_info_updated(self, title: str, artist: object) -> None:
+        """Aggiorna il mini player dai segnali del flow DJ."""
         if self._app_mode.get_mode() != "dj":
             return
-        self._track_title.setText(track.get("title", "Senza titolo"))
-        self._track_artist.setText(track.get("artist", "") or "")
+        self._track_title.setText(title or "Nessun brano")
+        self._track_artist.setText(str(artist) if artist else "")
 
-    def _on_track_ended(self) -> None:
-        """Pulisce il mini player a fine brano in modalità DJ."""
-        if self._app_mode.get_mode() != "dj":
-            return
-        self._track_title.setText("Nessun brano")
-        self._track_artist.setText("")
+    def _on_status_message(self, message: str) -> None:
+        """Mostra un messaggio breve nella barra di stato DJ."""
+        self._status_label.setText(message)

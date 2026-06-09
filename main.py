@@ -178,6 +178,7 @@ def main() -> int:
         main_window.wire_services(player_service, search_service, download_service)
         main_window.set_filler_service(filler_service)
         dj_playback_flow.set_player(player_service)
+        dj_playback_flow.set_filler(filler_service)
         external_coordinator.set_player(player_service)
     else:
         search_engine = SearchEngine(conn, enable_youtube=False)

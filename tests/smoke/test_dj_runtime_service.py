@@ -87,6 +87,51 @@ def test_dj_runtime_shuffle_fisher_yates() -> None:
     ]
 
 
+def test_dj_runtime_has_next_after_current() -> None:
+    """Verifica has_next_after_current per primo play, metà coda e fine con/senza loop."""
+    tracks = _make_tracks(3)
+    service = DjRuntimeService()
+    service.load_tracks(tracks)
+
+    assert service.has_next_after_current() is True
+
+    service.advance()
+    assert service.has_next_after_current() is True
+
+    service.advance()
+    service.advance()
+    assert service.get_current_index() == 2
+    assert service.has_next_after_current() is False
+
+    service.set_loop(True)
+    assert service.has_next_after_current() is True
+
+
+def test_dj_runtime_shuffle_loop_reshuffles_each_cycle() -> None:
+    """Con shuffle+loop, ogni ciclo genera una nuova permutazione Fisher-Yates."""
+    tracks = _make_tracks(8)
+    service = DjRuntimeService()
+    service.set_shuffle(True)
+    service.set_loop(True)
+    service.load_tracks(tracks)
+
+    first_cycle: list[int] = []
+    for _ in range(8):
+        track = service.advance()
+        assert track is not None
+        first_cycle.append(track["id"])
+
+    second_cycle: list[int] = []
+    for _ in range(8):
+        track = service.advance()
+        assert track is not None
+        second_cycle.append(track["id"])
+
+    assert set(first_cycle) == {track["id"] for track in tracks}
+    assert set(second_cycle) == {track["id"] for track in tracks}
+    assert first_cycle != second_cycle
+
+
 def test_dj_runtime_shuffle_preserves_current_track() -> None:
     """Verifica che il toggle shuffle mantenga il brano corrente evidenziato."""
     tracks = _make_tracks(5)
@@ -107,5 +152,7 @@ def test_dj_runtime_shuffle_preserves_current_track() -> None:
 if __name__ == "__main__":
     test_dj_runtime_load_add_advance()
     test_dj_runtime_shuffle_fisher_yates()
+    test_dj_runtime_has_next_after_current()
+    test_dj_runtime_shuffle_loop_reshuffles_each_cycle()
     test_dj_runtime_shuffle_preserves_current_track()
     print("OK")

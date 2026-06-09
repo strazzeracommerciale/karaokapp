@@ -132,6 +132,13 @@ class MainWindow(QMainWindow):
     def wire_mode_services(self, dj_playback_flow: "DjPlaybackFlow") -> None:
         """Collega il flow playback DJ (guard interno su AppModeService)."""
         self._dj_flow = dj_playback_flow
+        self.set_dj_flow(dj_playback_flow)
+
+    def set_dj_flow(self, dj_playback_flow: "DjPlaybackFlow") -> None:
+        """Collega il flow DJ al karaoke per l'ownership condivisa del player."""
+        if self._karaoke_flow is not None:
+            self._karaoke_flow.set_dj_flow(dj_playback_flow)
+        self._connect_service_signals()
 
     def set_filler_service(self, filler_service: "FillerService | None") -> None:
         """Collega il service di sottofondo e sincronizza i controlli."""
@@ -315,20 +322,32 @@ class MainWindow(QMainWindow):
             self._search.results_ready.connect(self._on_results_ready)
         if self._queue is not None:
             self._queue_widget.set_queue(self._queue.get_queue())
-        if self._player is not None and self._karaoke_flow is not None:
-            flow = self._karaoke_flow
-            try:
-                self._player.track_started.disconnect(flow.on_track_started)
-                self._player.track_ended.disconnect(flow.on_track_ended)
-                self._player.track_failed.disconnect(flow.on_track_failed)
-                self._player.position_updated.disconnect(self._player_widget.update_position)
-            except TypeError:
-                pass
-            self._player.track_started.connect(flow.on_track_started)
-            self._player.track_ended.connect(flow.on_track_ended)
-            self._player.track_failed.connect(flow.on_track_failed)
-            self._player.position_updated.connect(self._player_widget.update_position)
-            self._player.set_volume(self._player_widget.volume())
+        if self._player is not None:
+            if self._karaoke_flow is not None:
+                flow = self._karaoke_flow
+                try:
+                    self._player.track_started.disconnect(flow.on_track_started)
+                    self._player.track_ended.disconnect(flow.on_track_ended)
+                    self._player.track_failed.disconnect(flow.on_track_failed)
+                    self._player.position_updated.disconnect(self._player_widget.update_position)
+                except TypeError:
+                    pass
+                self._player.track_started.connect(flow.on_track_started)
+                self._player.track_ended.connect(flow.on_track_ended)
+                self._player.track_failed.connect(flow.on_track_failed)
+                self._player.position_updated.connect(self._player_widget.update_position)
+                self._player.set_volume(self._player_widget.volume())
+            if self._dj_flow is not None:
+                dj_flow = self._dj_flow
+                try:
+                    self._player.track_started.disconnect(dj_flow.on_track_started)
+                    self._player.track_ended.disconnect(dj_flow.on_track_ended)
+                    self._player.track_failed.disconnect(dj_flow.on_track_failed)
+                except TypeError:
+                    pass
+                self._player.track_started.connect(dj_flow.on_track_started)
+                self._player.track_ended.connect(dj_flow.on_track_ended)
+                self._player.track_failed.connect(dj_flow.on_track_failed)
         if self._download is not None:
             try:
                 self._download.download_progress.disconnect(self._on_download_progress)
@@ -521,8 +540,20 @@ class MainWindow(QMainWindow):
         """Delega skip a entrambi i flow (guard interno su modalità)."""
         if self._dj_flow is not None:
             self._dj_flow.skip()
-        if self._karaoke_flow is not None:
-            self._karaoke_flow.skip()
+        if self._karaoke_flow is None:
+            return
+        if (
+            self._app_mode.get_mode() == "karaoke"
+            and self._dj_flow is not None
+            and self._dj_flow.is_playback_active()
+        ):
+            QMessageBox.warning(
+                self,
+                "Skip",
+                "Il player è occupato dalla consolle DJ.",
+            )
+            return
+        self._karaoke_flow.skip()
 
     def _on_seek(self, seconds: float) -> None:
         """Seek nel brano corrente."""

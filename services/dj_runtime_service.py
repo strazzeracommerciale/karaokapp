@@ -30,6 +30,20 @@ class DjRuntimeService(QObject):
         """Restituisce l'indice del brano corrente (-1 se nessuno)."""
         return self._current_index
 
+    def get_current_track(self) -> dict | None:
+        """Restituisce il brano corrente, se presente."""
+        return self._current_track()
+
+    def has_next_after_current(self) -> bool:
+        """True se, dopo il brano corrente, esiste un altro brano da riprodurre."""
+        if not self._tracks:
+            return False
+        if self._current_index < 0:
+            return True
+        if self._current_index < len(self._tracks) - 1:
+            return True
+        return self._loop
+
     def is_shuffle_enabled(self) -> bool:
         """True se lo shuffle è attivo."""
         return self._shuffle
@@ -50,7 +64,7 @@ class DjRuntimeService(QObject):
         self.runtime_updated.emit()
 
     def set_loop(self, enabled: bool) -> None:
-        """Imposta il flag loop (wrap indice in Fase 3)."""
+        """Imposta il flag loop (nuovo ciclo con reshuffle se shuffle attivo)."""
         if enabled == self._loop:
             return
         self._loop = enabled
@@ -89,13 +103,20 @@ class DjRuntimeService(QObject):
         self.runtime_updated.emit()
 
     def advance(self) -> dict | None:
-        """Avanza all'indice successivo e restituisce il brano (stub Fase 1)."""
+        """Avanza all'indice successivo e restituisce il brano.
+
+        A fine coda con loop attivo riparte dall'inizio; se shuffle è attivo
+        genera una nuova permutazione Fisher-Yates prima del nuovo ciclo.
+        """
         if not self._tracks:
             return None
         next_index = self._current_index + 1
         if next_index >= len(self._tracks):
             if not self._loop:
                 return None
+            if self._shuffle:
+                self._tracks = self._fisher_yates(self._source_tracks)
+                logger.debug("Runtime DJ: nuovo ciclo shuffle")
             next_index = 0
         self._current_index = next_index
         track = self._tracks[self._current_index]
