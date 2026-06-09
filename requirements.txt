@@ -1,0 +1,4 @@
+PyQt6==6.7.1
+python-vlc==3.0.21203
+yt-dlp==2024.8.6
+rapidfuzz==3.9.6

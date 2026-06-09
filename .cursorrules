@@ -1,0 +1,262 @@
+## 1. CONTESTO DEL PROGETTO
+
+Sviluppo su: Windows 10/11 64-bit
+Target finale: macOS Ventura 13+
+Strategia: codebase unica cross-platform. Branching per-piattaforma
+consentito SOLO nei tre punti elencati in sezione 7.
+
+---
+
+## 2. STRUTTURA DEL PROGETTO — NON MODIFICARE SENZA APPROVAZIONE
+
+```
+karaoke_manager/
+├── main.py
+├── config.py
+├── .cursorrules
+├── db/
+│   ├── db_core.py
+│   └── schema.sql
+├── engines/
+│   ├── vlc_engine.py
+│   ├── ytdlp_engine.py
+│   ├── search_engine.py
+│   └── display_manager.py
+├── services/
+│   ├── player_service.py
+│   ├── search_service.py
+│   ├── queue_service.py
+│   └── download_service.py
+├── ui/
+│   ├── main_window.py
+│   ├── hdmi_window.py
+│   ├── search_widget.py
+│   ├── player_widget.py
+│   └── queue_widget.py
+└── assets/
+    └── style.qss
+```
+
+Aggiungere nuovi file è consentito. Rinominare o spostare file esistenti richiede approvazione.
+
+---
+
+## 3. DIPENDENZE — LIBRERIE APPROVATE
+
+Usa solo le librerie elencate. Per aggiungerne una nuova, proponi prima e attendi approvazione.
+
+| Scopo | Libreria | Import canonico |
+|---|---|---|
+| UI | PyQt6 | `from PyQt6.QtWidgets import ...` |
+| Player video/audio | python-vlc | `import vlc` |
+| Download YouTube | yt-dlp | `import yt_dlp` |
+| Ricerca fuzzy | rapidfuzz | `from rapidfuzz import process, fuzz` |
+| Path management | pathlib (stdlib) | `from pathlib import Path` |
+| Logging | logging (stdlib) | `import logging` |
+| Thread worker | PyQt6.QtCore | `QThread`, `QRunnable`, `QThreadPool` |
+| Tipi | typing (stdlib) | `from typing import ...` |
+| Array numerici | numpy | `import numpy as np` |
+| I/O audio file | soundfile | `import soundfile as sf` |
+
+---
+
+## 4. CONVENZIONI DI CODICE
+
+### 4.1 Stile generale
+- Formattazione: **black** (line length 100)
+- Imports: **isort** (profile black)
+- Ordine import: stdlib → third party → moduli locali, separati da riga vuota
+- Naming: `snake_case` per funzioni/variabili, `PascalCase` per classi, `UPPER_SNAKE` per costanti
+- Nessun wildcard import (`from x import *`)
+
+### 4.2 Type hints
+- Obbligatori su TUTTE le firme pubbliche (parametri + return type)
+- Usare `typing` per tipi complessi: `Optional`, `Union`, `Callable`, `list[dict]`
+- Esempio corretto:
+  ```python
+  def search_local(self, query: str) -> list[dict]:
+  ```
+
+### 4.3 Docstring
+- Obbligatorie per ogni classe e ogni metodo pubblico
+- Formato: una riga descrittiva, poi parametri se non ovvi
+- Esempio:
+  ```python
+  def search_local(self, query: str, limit: int | None = None) -> list[dict]:
+      """Cerca tracce nella libreria locale per titolo/artista.
+
+      Ritorna una lista di dict ordinata per rilevanza fuzzy.
+      """
+  ```
+
+### 4.4 Gestione errori
+- **Vietato** `except: pass` o `except Exception: pass` senza logging
+- Ogni eccezione silenziata deve avere: `logger.warning(...)` o `logger.error(...)`
+- Errori critici di startup: `logger.critical(...)` + `sys.exit(1)`
+- Logger di modulo dichiarato in testa a ogni file:
+  ```python
+  logger = logging.getLogger(__name__)
+  ```
+
+### 4.5 Path e file system
+- **Sempre** `pathlib.Path`, mai `os.path.join()`, mai concatenazione di stringhe
+- Path relativi sempre ancorati a `config.BASE_DIR` (root del progetto)
+- Esempio corretto:
+  ```python
+  output_path = config.DOWNLOAD_DIR / f"{youtube_id}.mp4"
+  ```
+
+### 4.6 Costanti
+- **Zero costanti hardcodate** fuori da `config.py`
+- Nessun numero magico inline (soglie, timeout, dimensioni): tutto in `config.py`
+
+---
+
+## 5. ARCHITETTURA — REGOLE NON NEGOZIABILI
+
+### 5.1 Separazione dei layer
+
+| Layer | Può importare | Non può importare |
+|---|---|---|
+| `ui/` | `services/`, `config` | `engines/`, `db/` |
+| `services/` | `engines/`, `db/`, `config` | `ui/` |
+| `engines/` | `config` | `services/`, `ui/`, `db/` |
+| `db/` | `config` | tutto il resto |
+
+Qualsiasi import che viola questa tabella è un bug architetturale, non un'eccezione.
+
+### 5.2 Comunicazione tra layer
+- UI → Service: chiamate dirette a metodi del service
+- Service → UI: esclusivamente via **segnali Qt** (`pyqtSignal`)
+- Engine → Service: return value o callback, mai segnali Qt
+- Nessun widget UI accede mai direttamente al database
+
+### 5.3 Thread safety
+- Il thread UI (main thread) non blocca mai per più di 16ms
+- Download yt-dlp: sempre in `QThread` dedicato
+- Ricerca YouTube: sempre in `QThread` dedicato
+- Accesso SQLite: sempre dallo stesso thread (main thread via service), mai da worker thread
+  - Eccezione: i worker thread usano `QMetaObject.invokeMethod` per aggiornare il db tramite il service nel main thread
+
+### 5.4 Dependency injection
+- Nessun singleton globale eccetto `config` e il logger
+- Ogni service riceve le proprie dipendenze nel costruttore
+- Ogni widget riceve i propri service nel costruttore
+- Il wiring completo avviene solo in `main.py`
+
+---
+
+## 6. REGOLE SPECIFICHE PyQt6
+
+- **macOS VLC embed**: usare `set_nsobject(int(widget.winId()))` — solo dopo che il widget è stato mostrato (`widget.show()` chiamato prima)
+- **Segnali**: dichiarati come attributi di classe, non di istanza:
+  ```python
+  class MyService(QObject):
+      data_ready = pyqtSignal(list)   # corretto
+  ```
+- **QThread**: sottoclasse con `run()` overridato, oppure `QRunnable` + `QThreadPool` per task brevi
+- **Shutdown pulito**: connettere `app.aboutToQuit` al metodo di cleanup, non usare `__del__`
+- **Stylesheet**: tutto in `assets/style.qss`, mai stili inline nel codice Python eccetto per valori dinamici
+
+---
+
+## 7. COMPATIBILITÀ CROSS-PLATFORM
+
+- Video in vlc_engine.py → embed nativo: set_hwnd (win32) / set_nsobject (darwin) /
+  set_xwindow (linux). Dual-monitor: secondo player VLC clonato (stessa istanza libvlc),
+  audio su un solo player. Nessun pitch/tempo: VLC riproduce audio+video nativamente.
+- Font in config.py → "Segoe UI" (win32) / ".AppleSystemUIFont" (darwin)
+- VLC plugin path in config → Path("C:/Program Files/VideoLAN/VLC/plugins") su win32, None su darwin
+
+Regola: tutto il resto del codice è platform-agnostic per costruzione
+(pathlib, QScreen API, tempfile.gettempdir). Nessun altro branching
+è necessario né consentito.
+
+### 7.6 VLC secondario (clone HDMI) — audio disabilitato per costruzione
+Il clone VLC per il monitor HDMI usa una istanza libvlc separata
+con --no-audio. Non condivide l'istanza con il primario.
+NON aggiungere set_mute() sul secondario — è ridondante e fuorviante.
+NON ripristinare la condivisione di istanza tra primario e secondario.
+
+---
+
+## 8. DATABASE
+
+- Connessione: una sola connessione per processo, gestita da `db_core.get_conn()`
+- WAL mode attivo: `PRAGMA journal_mode=WAL` eseguito a ogni avvio
+- Foreign keys attivi: `PRAGMA foreign_keys=ON` eseguito a ogni avvio
+- Transazioni esplicite per operazioni multiple: `with conn:` context manager
+- Nessuna query SQL fuori da `db/` e `services/`
+- Parametri sempre con placeholder `?`, mai f-string in query SQL (SQL injection)
+
+---
+
+## 9. LOGGING
+
+Configurazione in `main.py`, applicata all'avvio:
+
+```python
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(config.LOG_PATH, encoding="utf-8"),
+    ]
+)
+```
+
+Livelli di uso:
+- `DEBUG`: stato interno dei motori, risultati ricerca, eventi playback
+- `INFO`: azioni utente significative, avvio/shutdown moduli
+- `WARNING`: situazioni recuperabili (file non trovato, download fallito con retry)
+- `ERROR`: operazioni fallite che degradano una funzionalità
+- `CRITICAL`: errori che impediscono l'avvio o corrompono i dati
+
+---
+
+## 10. TESTING E SMOKE TEST
+
+Ogni agente deve produrre uno smoke test eseguibile da riga di comando.
+Formato standard:
+
+```bash
+cd karaoke_manager
+python -m pytest tests/smoke/test_<modulo>.py -v
+```
+
+In assenza di pytest, uno script `tests/smoke/test_<modulo>.py` eseguibile direttamente con `python`.
+
+Smoke test minimi obbligatori per ogni modulo:
+- Import senza eccezioni
+- Istanziazione della classe principale senza errori
+- Chiamata al metodo principale con input minimale
+- Verifica dell'output atteso (tipo corretto, non None se non previsto)
+
+---
+
+## 11. COSA NON FARE MAI
+
+- ❌ Non usare `subprocess` per chiamare yt-dlp — usare la libreria Python
+- ❌ Non usare `os.system()` per nulla
+- ❌ Non usare `global` variables (eccetto il logger di modulo)
+- ❌ Non fare `time.sleep()` nel thread UI
+- ❌ Non accedere al filesystem da un widget UI direttamente
+- ❌ Non scrivere SQL con f-string o concatenazione di stringhe
+- ❌ Non usare `set_xwindow()` per VLC (è Linux, qui siamo su macOS)
+- ❌ Non fare `from PyQt5 import` — è PyQt6
+- ❌ Non modificare `db_core.py` e `config.py` senza approvazione esplicita
+- ❌ Non hardcodare youtube_id, path, o URL nel codice applicativo
+- ❌ Non usare && per concatenare comandi shell: il terminale è PowerShell.
+  Usare ; oppure comandi su righe separate.
+
+---
+
+## 12. GESTIONE DELLE MODIFICHE FUTURE
+
+Quando viene richiesta una modifica:
+1. Identifica il layer coinvolto
+2. Verifica che non violi la tabella delle dipendenze (regola 5.1)
+3. Se la modifica tocca un contratto di interfaccia già definito: segnalalo esplicitamente prima di procedere
+4. Se la modifica tocca `config.py`, `db_core.py` o `schema.sql`: richiedi conferma esplicita
+5. Produci sempre uno smoke test per la modifica

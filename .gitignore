@@ -1,0 +1,15 @@
+data/
+logs/
+media/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+karaoke_backup_*.db
+.env
+*.egg-info/
+dist/
+build/

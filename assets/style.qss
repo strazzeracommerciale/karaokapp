@@ -1,0 +1,150 @@
+/* KaraokeManager dark theme */
+
+* {
+    font-family: ".AppleSystemUIFont", "Helvetica Neue", sans-serif;
+    color: #e8e8ec;
+}
+
+QMainWindow, QWidget {
+    background-color: #1a1a1e;
+}
+
+QLineEdit, QListWidget, QSlider, QPushButton {
+    background-color: #111114;
+    border: 1px solid #2a2a32;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+QLineEdit:focus {
+    border-color: #2d5fa8;
+}
+
+QPushButton {
+    background-color: #2d5fa8;
+    border: none;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background-color: #3a6fbe;
+}
+
+QPushButton:pressed {
+    background-color: #244f94;
+}
+
+QPushButton#secondaryButton {
+    background-color: #2a2a32;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #2a2a32;
+}
+
+QListWidget::item:selected {
+    background-color: #2d5fa8;
+}
+
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #2a2a32;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    width: 14px;
+    margin: -4px 0;
+    background: #2d5fa8;
+    border-radius: 7px;
+}
+
+QSplitter::handle {
+    background-color: #3a3a45;
+    border: 1px solid #50505f;
+    border-radius: 2px;
+}
+
+QSplitter::handle:horizontal {
+    width: 10px;
+    margin: 2px 1px;
+}
+
+QSplitter::handle:vertical {
+    height: 10px;
+    margin: 1px 2px;
+}
+
+QSplitter::handle:hover {
+    background-color: #2d5fa8;
+    border-color: #3a6fbe;
+}
+
+QSplitter::handle:pressed {
+    background-color: #244f94;
+}
+
+QLabel#hdmiTitle {
+    font-size: 48px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+QLabel#hdmiSinger {
+    font-size: 36px;
+    color: #2d5fa8;
+}
+
+QLabel#hdmiNext {
+    font-size: 24px;
+    color: #888890;
+}
+
+.badge-local {
+    color: #4caf50;
+}
+
+.badge-youtube {
+    color: #ff5252;
+}
+
+.badge-downloading {
+    color: #ffb74d;
+}
+
+QPushButton:disabled {
+    background-color: #1e1e24;
+    color: #6a6a72;
+}
+
+QPushButton#modeToggle {
+    background-color: #2a2a32;
+    border: 1px solid #3a3a45;
+    padding: 6px 14px;
+    font-weight: 600;
+}
+
+QPushButton#modeToggle:hover {
+    background-color: #34343e;
+}
+
+QPushButton#modeToggle:pressed {
+    background-color: #24242c;
+}
+
+QPushButton#modeToggleActive {
+    background-color: #2d5fa8;
+    border: none;
+    padding: 6px 14px;
+    font-weight: 600;
+}
+
+QPushButton#modeToggleActive:hover {
+    background-color: #3a6fbe;
+}
+
+QPushButton#modeToggleActive:pressed {
+    background-color: #244f94;
+}
