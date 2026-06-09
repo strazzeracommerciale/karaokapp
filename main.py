@@ -206,6 +206,7 @@ def main() -> int:
     main_window.dj_console_toggle_requested.connect(
         lambda: _toggle_dj_console(dj_console_window)
     )
+    dj_console_window.dj_filler_track_requested.connect(main_window.apply_dj_filler_track)
     if player_service is not None:
         dj_console_window.set_player(player_service)
 

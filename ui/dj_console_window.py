@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 class DjConsoleWindow(QWidget):
     """Consolle DJ autonoma: runtime, libreria, playlist e ricerca."""
+
+    dj_filler_track_requested = pyqtSignal(dict)
 
     def __init__(
         self,
@@ -150,6 +152,7 @@ class DjConsoleWindow(QWidget):
         self._library_widget.import_paths_selected.connect(self._on_import_paths)
         self._library_widget.scan_requested.connect(self._on_scan_library)
         self._library_widget.track_selected.connect(self._add_track_to_runtime)
+        self._library_widget.set_as_filler_requested.connect(self.dj_filler_track_requested.emit)
 
         self._playlist_widget.create_requested.connect(self._on_playlist_create)
         self._playlist_widget.delete_requested.connect(self._on_playlist_delete)

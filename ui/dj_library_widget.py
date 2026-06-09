@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -31,6 +32,7 @@ class DjLibraryWidget(QWidget):
     refresh_requested = pyqtSignal(str)
     import_paths_selected = pyqtSignal(list)
     scan_requested = pyqtSignal()
+    set_as_filler_requested = pyqtSignal(dict)
 
     def __init__(self) -> None:
         """Costruisce la UI della libreria DJ."""
@@ -80,6 +82,8 @@ class DjLibraryWidget(QWidget):
 
         self._list = QListWidget()
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("Nessun brano DJ in libreria.")
@@ -145,3 +149,16 @@ class DjLibraryWidget(QWidget):
         track = item.data(_TRACK_DATA_ROLE)
         if track:
             self.track_selected.emit(track)
+
+    def _on_context_menu(self, pos) -> None:
+        """Menu contestuale: imposta il brano DJ come sottofondo."""
+        item = self._list.itemAt(pos)
+        if item is None:
+            return
+        track = item.data(_TRACK_DATA_ROLE)
+        if not track:
+            return
+        menu = QMenu(self)
+        action = menu.addAction("Imposta come sottofondo")
+        if menu.exec(self._list.mapToGlobal(pos)) is action:
+            self.set_as_filler_requested.emit(track)

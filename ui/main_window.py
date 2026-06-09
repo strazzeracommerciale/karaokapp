@@ -8,7 +8,6 @@ from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -18,7 +17,6 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSlider,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -38,6 +36,7 @@ if TYPE_CHECKING:
     from services.playlist_service import PlaylistService
     from services.player_service import PlayerService
     from services.search_service import SearchService
+from ui.filler_source_widget import FillerSourceWidget
 from ui.library_widget import LibraryWidget
 from ui.playlist_widget import PlaylistWidget
 from ui.player_widget import PlayerWidget
@@ -146,7 +145,24 @@ class MainWindow(QMainWindow):
         if self._karaoke_flow is not None:
             self._karaoke_flow.set_filler(filler_service)
         if filler_service is not None:
-            filler_service.set_volume(self._filler_volume.value())
+            filler_service.set_volume(self._filler_source.volume())
+        self._refresh_filler_playlists()
+        self._sync_filler_widget_from_service()
+
+    def apply_dj_filler_track(self, track: dict) -> None:
+        """Imposta un brano DJ come sottofondo (da consolle DJ o picker)."""
+        if self._filler is None:
+            QMessageBox.information(
+                self, "Sottofondo", "Il sottofondo non è disponibile in questa modalità."
+            )
+            return
+        self._filler.set_dj_track(track)
+        if not self._filler.has_track():
+            QMessageBox.warning(self, "Sottofondo", "Brano DJ non disponibile come sottofondo.")
+            return
+        self._filler_source.set_source_mode("dj_track")
+        self._sync_filler_widget_from_service()
+        self._activate_filler_if_needed()
 
     def queue_widget(self) -> QueueWidget:
         """Restituisce il widget coda per il wiring esterno."""
@@ -247,24 +263,13 @@ class MainWindow(QMainWindow):
         self._external_btn.toggled.connect(self._on_external_toggled)
         bar.addWidget(self._external_btn)
         bar.addStretch()
-        bar.addWidget(QLabel("Sottofondo:"))
-        self._filler_choose_btn = QPushButton("Scegli brano…")
-        self._filler_choose_btn.setObjectName("secondaryButton")
-        self._filler_choose_btn.clicked.connect(self._on_filler_choose)
-        bar.addWidget(self._filler_choose_btn)
-        self._filler_name = QLabel("(nessuno)")
-        self._filler_name.setStyleSheet("color: #9a9aa6;")
-        bar.addWidget(self._filler_name)
-        self._filler_enabled = QCheckBox("Attivo nelle pause")
-        self._filler_enabled.toggled.connect(self._on_filler_enabled)
-        bar.addWidget(self._filler_enabled)
-        bar.addWidget(QLabel("Vol"))
-        self._filler_volume = QSlider(Qt.Orientation.Horizontal)
-        self._filler_volume.setRange(0, 100)
-        self._filler_volume.setValue(30)
-        self._filler_volume.setMaximumWidth(120)
-        self._filler_volume.valueChanged.connect(self._on_filler_volume)
-        bar.addWidget(self._filler_volume)
+        self._filler_source = FillerSourceWidget()
+        self._filler_source.choose_requested.connect(self._on_filler_choose)
+        self._filler_source.dj_playlist_selected.connect(self._on_filler_dj_playlist_selected)
+        self._filler_source.shuffle_toggled.connect(self._on_filler_shuffle_toggled)
+        self._filler_source.enabled_toggled.connect(self._on_filler_enabled)
+        self._filler_source.volume_changed.connect(self._on_filler_volume)
+        bar.addWidget(self._filler_source)
         return bar
 
     def _connect_karaoke_flow_signals(self) -> None:
@@ -436,6 +441,13 @@ class MainWindow(QMainWindow):
         if self._playlist is None:
             return
         self._playlist_widget.set_playlists(self._playlist.list_playlists(mode="karaoke"))
+        self._refresh_filler_playlists()
+
+    def _refresh_filler_playlists(self) -> None:
+        """Aggiorna il combo playlist DJ del widget sottofondo."""
+        if self._playlist is None:
+            return
+        self._filler_source.set_dj_playlists(self._playlist.list_playlists(mode="dj"))
 
     def _on_playlist_load_tracks(self, playlist_id: int) -> None:
         """Carica i brani della playlist selezionata."""
@@ -592,25 +604,100 @@ class MainWindow(QMainWindow):
         self.external_toggle_requested.emit(checked)
 
     def _on_filler_choose(self) -> None:
-        """Sceglie il file del brano di sottofondo."""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Scegli il brano di sottofondo",
-            "",
-            "Audio/Video (*.mp3 *.m4a *.wav *.flac *.ogg *.aac *.mp4 *.mkv *.webm *.avi)",
-        )
-        if not path:
-            return
-        self._apply_filler_track(path, Path(path).name)
+        """Apre il picker appropriato in base alla modalità sorgente selezionata."""
+        mode = self._filler_source.current_source_mode()
+        if mode == "file":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Scegli il brano di sottofondo",
+                "",
+                "Audio/Video (*.mp3 *.m4a *.wav *.flac *.ogg *.aac *.mp4 *.mkv *.webm *.avi)",
+            )
+            if path:
+                self._apply_filler_file_source(path, Path(path).name)
+        elif mode == "dj_track":
+            self._pick_dj_filler_track()
 
-    def _apply_filler_track(self, path: str, label: str) -> None:
-        """Imposta il file del sottofondo, attiva la funzione e lo avvia se in pausa."""
-        self._filler_name.setText(label)
+    def _pick_dj_filler_track(self) -> None:
+        """Dialog per scegliere un brano DJ come sottofondo."""
+        if self._library is None:
+            return
+        tracks = self._library.list_tracks(track_type="dj")
+        if not tracks:
+            QMessageBox.information(self, "Sottofondo", "Nessun brano DJ in libreria.")
+            return
+        labels: list[str] = []
+        for track in tracks:
+            artist = track.get("artist") or ""
+            artist_part = f" — {artist}" if artist else ""
+            labels.append(f"{track.get('title', '')}{artist_part}")
+        chosen, ok = QInputDialog.getItem(
+            self,
+            "Brano DJ sottofondo",
+            "Seleziona un brano:",
+            labels,
+            0,
+            False,
+        )
+        if ok and chosen in labels:
+            self.apply_dj_filler_track(tracks[labels.index(chosen)])
+
+    def _apply_filler_file_source(self, path: str, label: str) -> None:
+        """Imposta un file singolo come sottofondo karaoke."""
+        self._filler_source.set_source_mode("file")
+        self._filler_source.set_source_label(label)
         if self._filler is None:
             return
-        self._filler.set_track(path)
-        if not self._filler_enabled.isChecked():
-            self._filler_enabled.setChecked(True)
+        self._filler.set_file_source(path)
+        self._activate_filler_if_needed()
+
+    def _on_filler_dj_playlist_selected(self, playlist_id: int, shuffle: bool) -> None:
+        """Carica una playlist DJ come sottofondo continuo."""
+        if self._filler is None or self._playlist is None:
+            return
+        tracks = self._playlist.get_tracks(playlist_id)
+        playlist_name = next(
+            (
+                playlist["name"]
+                for playlist in self._playlist.list_playlists(mode="dj")
+                if playlist["id"] == playlist_id
+            ),
+            "Playlist DJ",
+        )
+        self._filler.set_dj_playlist(
+            tracks,
+            shuffle=shuffle,
+            label=playlist_name,
+            playlist_id=playlist_id,
+        )
+        self._filler_source.set_source_mode("dj_playlist")
+        self._sync_filler_widget_from_service()
+        self._activate_filler_if_needed()
+
+    def _on_filler_shuffle_toggled(self, checked: bool) -> None:
+        """Aggiorna lo shuffle filler indipendente dal runtime DJ."""
+        if self._filler is None:
+            return
+        if self._filler.get_source_mode() != "dj_playlist":
+            return
+        self._filler.set_playlist_shuffle(checked)
+        self._sync_filler_widget_from_service()
+
+    def _sync_filler_widget_from_service(self) -> None:
+        """Allinea il widget sottofondo allo stato del FillerService."""
+        if self._filler is None:
+            return
+        self._filler_source.set_source_mode(self._filler.get_source_mode())
+        self._filler_source.set_source_label(self._filler.get_source_label())
+        self._filler_source.set_shuffle_checked(self._filler.is_playlist_shuffle())
+
+    def _activate_filler_if_needed(self) -> None:
+        """Abilita il sottofondo e lo avvia se non c'è un brano in riproduzione."""
+        if self._filler is None:
+            return
+        if not self._filler_source.is_enabled_checked():
+            self._filler_source.set_enabled_checked(True)
+            self._filler.set_enabled(True)
         elif not self._is_track_playing():
             self._filler.start()
 
@@ -623,12 +710,12 @@ class MainWindow(QMainWindow):
             return
         local_path = track.get("local_path") or ""
         if local_path and Path(local_path).exists():
-            self._apply_filler_track(local_path, clean_title(track.get("title", "")))
+            self._apply_filler_file_source(local_path, clean_title(track.get("title", "")))
             return
         youtube_id = track.get("youtube_id")
         if youtube_id and self._download is not None:
             self._pending_filler_youtube_id = youtube_id
-            self._filler_name.setText(f"⏳ {clean_title(track.get('title', ''))}")
+            self._filler_source.set_source_label(f"⏳ {clean_title(track.get('title', ''))}")
             self._download.enqueue(youtube_id, track.get("title", ""), trigger="filler")
             QMessageBox.information(
                 self,
@@ -793,4 +880,7 @@ class MainWindow(QMainWindow):
             self._pending_filler_youtube_id = None
             local_path = track_dict.get("local_path") or ""
             if local_path:
-                self._apply_filler_track(local_path, clean_title(track_dict.get("title", "")))
+                self._apply_filler_file_source(
+                    local_path,
+                    clean_title(track_dict.get("title", "")),
+                )
