@@ -61,18 +61,30 @@ Per capire il processore: **Menu Apple** → **Informazioni su questo Mac** → 
 
 ---
 
-## Passo 6 — Primo avvio (obbligatorio)
+## Passo 6 — Primo avvio
 
-L’app non è firmata da Apple (uso interno). Al primo avvio:
+### Metodo A (di solito basta)
 
 1. Apri **Finder** → **Applicazioni**
-2. **Tasto destro** (o Ctrl+click) su **KaraokeManager**
-3. Clicca **Apri**
-4. Nella finestra di avviso clicca di nuovo **Apri**
+2. **Tasto destro** su **KaraokeManager** → **Apri** → **Apri**
 
-Dopo questa procedura puoi avviare l’app con un normale doppio click.
+### Metodo B — errore «KaraokeManager è danneggiato…»
 
-**Alternativa:** se compare “Impossibile aprire…”, vai in **Impostazioni di sistema** → **Privacy e sicurezza** → **Apri comunque**.
+Su macOS questo messaggio **non significa** che il file sia corrotto: Gatekeeper blocca app **non firmate da Apple**. Risoluzione:
+
+1. Apri **Terminale** (Spotlight → digita *Terminale*)
+2. Incolla questi comandi uno alla volta (Invio dopo ciascuno):
+
+```bash
+xattr -cr /Applications/KaraokeManager.app
+codesign --force --deep --sign - /Applications/KaraokeManager.app
+```
+
+3. Avvia l’app con **doppio click** da Applicazioni
+
+Se compare ancora un avviso: **Impostazioni di sistema** → **Privacy e sicurezza** → **Apri comunque**.
+
+> Le build GitHub **dopo giugno 2026** includono già la firma ad-hoc; se hai scaricato una build precedente, usa il Metodo B oppure riscarica l’artifact più recente.
 
 ---
 
@@ -102,6 +114,7 @@ I tuoi brani e il database **non** vengono cancellati (restano in Application Su
 | Problema | Soluzione |
 |----------|-----------|
 | Non vedo Artifacts | La build non è ancora finita o è fallita; controlla che ci sia ✓ verde |
-| “App danneggiata” / bloccata | Tasto destro → Apri (passo 6) |
+| **«App danneggiata, spostare nel Cestino»** | Terminale: `xattr -cr /Applications/KaraokeManager.app` poi `codesign --force --deep --sign - /Applications/KaraokeManager.app` |
+| «Sviluppatore non identificato» | Tasto destro → Apri, oppure Privacy e sicurezza → Apri comunque |
 | Video nero | Controlla `~/Library/Application Support/KaraokeManager/logs/karaoke_manager.log` |
 | Scaricato il file sbagliato (arm64 vs Intel) | Scarica l’artifact corretto per il tuo processore |

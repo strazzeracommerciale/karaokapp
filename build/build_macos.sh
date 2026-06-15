@@ -118,6 +118,19 @@ _check_arch "$MACOS/KaraokeManager"
 _check_arch "$VLC_DEST/libvlc.dylib"
 _check_arch "$BIN/ffmpeg"
 
+echo "==> Firma ad-hoc (evita errore «app danneggiata» su Gatekeeper)..."
+xattr -cr "$APP"
+while IFS= read -r -d '' file; do
+    codesign --force --sign - "$file" 2>/dev/null || true
+done < <(find "$MACOS" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+while IFS= read -r -d '' file; do
+    if [[ -x "$file" ]] || file "$file" | grep -q "Mach-O"; then
+        codesign --force --sign - "$file" 2>/dev/null || true
+    fi
+done < <(find "$MACOS" -type f -print0)
+codesign --force --deep --sign - "$APP"
+xattr -cr "$APP"
+
 APP_VERSION="$(python3 -c "import config; print(config.APP_VERSION)")"
 
 if [[ "$SKIP_DMG" == "1" ]]; then
