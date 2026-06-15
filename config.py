@@ -88,7 +88,11 @@ if _sys.platform == "win32":
 
 if _sys.platform == "darwin":
     _bundled_vlc = INSTALL_DIR / "vlc"
-    if _bundled_vlc.is_dir():
+    _libvlc = _bundled_vlc / "libvlc.dylib"
+    if _libvlc.is_file():
+        _os.environ["PYTHON_VLC_LIB_PATH"] = str(_libvlc)
+        _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
+    elif _bundled_vlc.is_dir():
         _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
 
 if _sys.platform == "win32":

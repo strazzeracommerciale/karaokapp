@@ -7,7 +7,9 @@ from pathlib import Path
 if sys.platform == "darwin" and getattr(sys, "frozen", False):
     macos_dir = Path(sys.executable).resolve().parent
     vlc_dir = macos_dir / "vlc"
-    if vlc_dir.is_dir():
+    libvlc = vlc_dir / "libvlc.dylib"
+    if libvlc.is_file():
+        os.environ["PYTHON_VLC_LIB_PATH"] = str(libvlc)
         os.environ["VLC_PLUGIN_PATH"] = str(vlc_dir / "plugins")
         fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
         vlc_lib = str(vlc_dir)

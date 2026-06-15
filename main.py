@@ -3,10 +3,11 @@
 import argparse
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 import config
 from db import db_core
@@ -70,6 +71,25 @@ def _setup_logging() -> None:
     )
 
 
+def _install_crash_logger() -> None:
+    """Scrive eccezioni non gestite su crash.log (utile su .app senza console)."""
+    if not getattr(sys, "frozen", False):
+        return
+    crash_log = config.LOG_PATH.parent / "crash.log"
+
+    def _hook(exc_type, exc, tb) -> None:
+        try:
+            crash_log.parent.mkdir(parents=True, exist_ok=True)
+            with crash_log.open("a", encoding="utf-8") as handle:
+                handle.write("\n--- crash ---\n")
+                traceback.print_exception(exc_type, exc, tb, file=handle)
+        except OSError:
+            pass
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _hook
+
+
 def _create_session(conn) -> int:
     """Crea una nuova sessione karaoke e ritorna l'id."""
     with conn:
@@ -101,6 +121,7 @@ def main() -> int:
     args = _parse_args()
     if args.db:
         config.DB_PATH = Path(args.db)
+    _install_crash_logger()
     _setup_logging()
     logger.info("Avvio %s (dry_run=%s)", config.APP_NAME, args.dry_run)
 
@@ -160,32 +181,41 @@ def main() -> int:
         from services.filler_service import FillerService
         from services.player_service import PlayerService
 
-        vlc_engine = VlcEngine()
-        vlc_engine.set_output_widget(main_window.video_output_widget())
-        vlc_engine_secondary = vlc_engine.clone()
-        ytdlp_engine = YtdlpEngine()
-        search_engine = SearchEngine(conn)
-        search_engine_dj = SearchEngine(conn, track_type="dj")
-        download_service = DownloadService(ytdlp_engine, conn)
-        search_service = SearchService(search_engine, download_service)
-        dj_search_service = SearchService(
-            search_engine_dj,
-            download_service,
-            track_type="dj",
-        )
-        player_service = PlayerService(
-            vlc_engine,
-            ytdlp_engine,
-            vlc_engine_secondary,
-        )
-        filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
-        filler_service = FillerService(filler_engine)
-        main_window.wire_services(player_service, search_service, download_service)
-        main_window.set_vlc_output_rebind(vlc_engine.set_output_widget)
-        main_window.set_filler_service(filler_service)
-        dj_playback_flow.set_player(player_service)
-        dj_playback_flow.set_filler(filler_service)
-        external_coordinator.set_player(player_service)
+        try:
+            vlc_engine = VlcEngine()
+            vlc_engine_secondary = vlc_engine.clone()
+            ytdlp_engine = YtdlpEngine()
+            search_engine = SearchEngine(conn)
+            search_engine_dj = SearchEngine(conn, track_type="dj")
+            download_service = DownloadService(ytdlp_engine, conn)
+            search_service = SearchService(search_engine, download_service)
+            dj_search_service = SearchService(
+                search_engine_dj,
+                download_service,
+                track_type="dj",
+            )
+            player_service = PlayerService(
+                vlc_engine,
+                ytdlp_engine,
+                vlc_engine_secondary,
+            )
+            filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
+            filler_service = FillerService(filler_engine)
+            main_window.wire_services(player_service, search_service, download_service)
+            main_window.set_filler_service(filler_service)
+            dj_playback_flow.set_player(player_service)
+            dj_playback_flow.set_filler(filler_service)
+            external_coordinator.set_player(player_service)
+        except Exception as exc:
+            logger.exception("Inizializzazione VLC/player fallita")
+            QMessageBox.critical(
+                None,
+                "KaraokeManager — errore VLC",
+                "Impossibile inizializzare il motore video/audio (VLC).\n\n"
+                f"Dettaglio: {exc}\n\n"
+                f"Log: {config.LOG_PATH}",
+            )
+            return 1
     else:
         search_engine = SearchEngine(conn, enable_youtube=False)
         search_engine_dj = SearchEngine(conn, track_type="dj", enable_youtube=False)
@@ -217,6 +247,11 @@ def main() -> int:
         dj_console_window.set_player(player_service)
 
     main_window.show()
+    app.processEvents()
+
+    if not args.dry_run and player_service is not None:
+        vlc_engine.set_output_widget(main_window.video_output_widget())
+        main_window.set_vlc_output_rebind(vlc_engine.set_output_widget)
 
     queue_service.queue_updated.connect(main_window.queue_widget().set_queue)
     external_coordinator.connect_signals(app, main_window.external_toggle_requested)

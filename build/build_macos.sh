@@ -80,8 +80,15 @@ VLC_DEST="$MACOS/vlc"
 rm -rf "$VLC_DEST"
 mkdir -p "$VLC_DEST"
 
+if [[ -d "$VLC_MACOS/lib" ]]; then
+    cp "$VLC_MACOS/lib/"*.dylib "$VLC_DEST/" 2>/dev/null || true
+fi
+
 _copy_vlc_lib() {
     local name="$1"
+    if [[ -f "$VLC_DEST/$name" ]]; then
+        return
+    fi
     if [[ -f "$VLC_MACOS/lib/$name" ]]; then
         cp "$VLC_MACOS/lib/$name" "$VLC_DEST/"
     elif [[ -f "$VLC_MACOS/$name" ]]; then
@@ -100,6 +107,19 @@ if [[ -d "$VLC_MACOS/plugins" ]]; then
 else
     echo "Errore: cartella plugins VLC non trovata" >&2
     exit 1
+fi
+
+echo "==> Correzione percorsi dylib VLC..."
+EXEC="$MACOS/KaraokeManager"
+install_name_tool -add_rpath "@executable_path/vlc" "$EXEC" 2>/dev/null || true
+for lib in "$VLC_DEST"/*.dylib; do
+    [[ -f "$lib" ]] || continue
+    chmod u+w "$lib" 2>/dev/null || true
+    install_name_tool -id "@executable_path/vlc/$(basename "$lib")" "$lib" 2>/dev/null || true
+done
+if [[ -f "$VLC_DEST/libvlc.dylib" ]] && [[ -f "$VLC_DEST/libvlccore.dylib" ]]; then
+    install_name_tool -change @rpath/libvlccore.dylib @executable_path/vlc/libvlccore.dylib \
+        "$VLC_DEST/libvlc.dylib" 2>/dev/null || true
 fi
 
 echo "==> Verifica architetture..."

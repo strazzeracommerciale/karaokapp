@@ -65,6 +65,17 @@ class VlcEngine:
     def set_output_widget(self, widget: QWidget) -> None:
         """Collega l'output video al widget PyQt6 (per piattaforma)."""
         self._output_widget = widget
+        if sys.platform == "darwin" and not widget.isVisible():
+            logger.warning(
+                "set_output_widget su macOS prima di show(): "
+                "rinviato al prossimo ciclo eventi Qt"
+            )
+            QTimer.singleShot(0, lambda: self._bind_output_widget(widget))
+            return
+        self._bind_output_widget(widget)
+
+    def _bind_output_widget(self, widget: QWidget) -> None:
+        """Esegue il bind nativo HWND/NSObject/XWindow sul widget."""
         if sys.platform == "darwin":
             self._player.set_nsobject(int(widget.winId()))
         elif sys.platform.startswith("linux"):
