@@ -114,8 +114,8 @@ I tuoi brani e il database **non** vengono cancellati (restano in Application Su
 | Problema | Soluzione |
 |----------|-----------|
 | Non vedo Artifacts | La build non è ancora finita o è fallita; controlla che ci sia ✓ verde |
-| **«App danneggiata, spostare nel Cestino»** | Terminale: `xattr -cr /Applications/KaraokeManager.app` poi `codesign --force --deep --sign - /Applications/KaraokeManager.app` |
-| **Si apre e si chiude subito** | Terminale: `/Applications/KaraokeManager.app/Contents/MacOS/KaraokeManager` — leggi l’errore. Poi controlla `~/Library/Application Support/KaraokeManager/logs/crash.log` |
+| **«App danneggiata, spostare nel Cestino»** | `xattr -cr /Applications/KaraokeManager.app` (se Permission denied: `sudo xattr -cr …`) poi `codesign --force --deep --sign - /Applications/KaraokeManager.app` |
+| **Si apre e si chiude / errore libvlccore** | Mac **M1** → artifact **arm64** + rimuovi VLC Intel da `/Applications/VLC.app` oppure reinstalla [VLC Apple Silicon](https://www.videolan.org/vlc/download-macos.html). Verifica: `lipo -archs /Applications/KaraokeManager.app/Contents/MacOS/vlc/libvlc.dylib` deve mostrare `arm64` |
 | «Sviluppatore non identificato» | Tasto destro → Apri, oppure Privacy e sicurezza → Apri comunque |
 | Video nero | Controlla `~/Library/Application Support/KaraokeManager/logs/karaoke_manager.log` |
 | Scaricato il file sbagliato (arm64 vs Intel) | Scarica l’artifact corretto per il tuo processore |

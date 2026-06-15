@@ -67,6 +67,7 @@ if command -v ffprobe >/dev/null 2>&1; then
     cp "$(command -v ffprobe)" "$BIN/ffprobe"
     chmod +x "$BIN/ffprobe"
 fi
+chmod -R u+w "$BIN"
 
 echo "==> Copia librerie VLC..."
 if [[ ! -d "$VLC_APP" ]]; then
@@ -123,20 +124,28 @@ if [[ -f "$VLC_DEST/libvlc.dylib" ]] && [[ -f "$VLC_DEST/libvlccore.dylib" ]]; t
 fi
 
 echo "==> Verifica architetture..."
-_check_arch() {
+MACHINE="$(uname -m)"
+_check_arch_match() {
     local file="$1"
-    if [[ -f "$file" ]] && command -v lipo >/dev/null 2>&1; then
-        local archs
-        archs="$(lipo -archs "$file" 2>/dev/null || echo "?")"
-        echo "    $(basename "$file"): $archs"
-        if [[ "$ARCH" == "universal2" ]] && [[ "$archs" != *"x86_64"* || "$archs" != *"arm64"* ]]; then
-            echo "    ⚠ non universal2 — per Intel+M1 serve Python/VLC/ffmpeg universal2" >&2
-        fi
+    if [[ ! -f "$file" ]] || ! command -v lipo >/dev/null 2>&1; then
+        return
+    fi
+    local archs
+    archs="$(lipo -archs "$file" 2>/dev/null || echo "?")"
+    echo "    $(basename "$file"): $archs (host=$MACHINE)"
+    if [[ "$MACHINE" == "arm64" && "$archs" != *"arm64"* ]]; then
+        echo "Errore: $(basename "$file") non contiene arm64" >&2
+        exit 1
+    fi
+    if [[ "$MACHINE" == "x86_64" && "$archs" != *"x86_64"* ]]; then
+        echo "Errore: $(basename "$file") non contiene x86_64" >&2
+        exit 1
     fi
 }
-_check_arch "$MACOS/KaraokeManager"
-_check_arch "$VLC_DEST/libvlc.dylib"
-_check_arch "$BIN/ffmpeg"
+_check_arch_match "$MACOS/KaraokeManager"
+_check_arch_match "$VLC_DEST/libvlc.dylib"
+_check_arch_match "$VLC_DEST/libvlccore.dylib"
+_check_arch_match "$BIN/ffmpeg"
 
 echo "==> Firma ad-hoc (evita errore «app danneggiata» su Gatekeeper)..."
 xattr -cr "$APP"

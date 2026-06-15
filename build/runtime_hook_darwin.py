@@ -5,6 +5,12 @@ import sys
 from pathlib import Path
 
 if sys.platform == "darwin" and getattr(sys, "frozen", False):
+    try:
+        from engines.vlc_bootstrap import configure_vlc_library
+
+        configure_vlc_library()
+    except Exception:
+        pass  # messaggio completo al primo import vlc_engine
     macos_dir = Path(sys.executable).resolve().parent
     vlc_dir = macos_dir / "vlc"
     libvlc = vlc_dir / "libvlc.dylib"

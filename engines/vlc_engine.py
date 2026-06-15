@@ -11,6 +11,9 @@ import logging
 import sys
 from collections.abc import Callable
 
+from engines.vlc_bootstrap import configure_vlc_library
+
+configure_vlc_library()
 import vlc
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QWidget
