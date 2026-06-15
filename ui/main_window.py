@@ -1,11 +1,12 @@
 """Finestra principale operatore."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QCursor, QShowEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -42,6 +43,7 @@ from ui.playlist_widget import PlaylistWidget
 from ui.player_widget import PlayerWidget
 from ui.queue_widget import QueueWidget
 from ui.search_widget import SearchWidget
+from ui.theme_service import ThemeService
 from utils.text import clean_title
 
 logger = logging.getLogger(__name__)
@@ -50,12 +52,46 @@ logger = logging.getLogger(__name__)
 class _VideoOutputWidget(QWidget):
     """Widget nero per embed nativo dell'output video VLC."""
 
+    _VLC_RESIZE_DEBOUNCE_MS = 150
+
     def __init__(self) -> None:
         """Inizializza l'area video."""
         super().__init__()
         self.setMinimumHeight(200)
         self.setStyleSheet("background-color: #000000;")
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._vlc_resize_callback: Callable[[QWidget], None] | None = None
+        self._last_vlc_size = (0, 0)
+        self._vlc_resize_timer = QTimer(self)
+        self._vlc_resize_timer.setSingleShot(True)
+        self._vlc_resize_timer.setInterval(self._VLC_RESIZE_DEBOUNCE_MS)
+        self._vlc_resize_timer.timeout.connect(self._emit_vlc_resize)
+
+    def set_vlc_resize_callback(
+        self, callback: Callable[[QWidget], None] | None
+    ) -> None:
+        """Registra callback per riallineare l'HWND VLC dopo un resize del widget."""
+        self._vlc_resize_callback = callback
+        self._last_vlc_size = (0, 0)
+
+    def resizeEvent(self, event) -> None:
+        """Pianifica il riaggancio VLC (debounced) per evitare tempeste di set_hwnd."""
+        super().resizeEvent(event)
+        if self._vlc_resize_callback is not None and self.width() > 0 and self.height() > 0:
+            self._vlc_resize_timer.start()
+
+    def _emit_vlc_resize(self) -> None:
+        """Riaggancia VLC solo se le dimensioni sono cambiate in modo significativo."""
+        if self._vlc_resize_callback is None:
+            return
+        size = (self.width(), self.height())
+        if size[0] <= 0 or size[1] <= 0:
+            return
+        last_w, last_h = self._last_vlc_size
+        if abs(size[0] - last_w) < 4 and abs(size[1] - last_h) < 4:
+            return
+        self._last_vlc_size = size
+        self._vlc_resize_callback(self)
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +109,7 @@ class MainWindow(QMainWindow):
         download_service: "DownloadService | None",
         library_service: "LibraryService | None" = None,
         playlist_service: "PlaylistService | None" = None,
+        theme_service: ThemeService | None = None,
         dry_run: bool = False,
     ) -> None:
         """Costruisce la UI e collega i service."""
@@ -84,6 +121,7 @@ class MainWindow(QMainWindow):
         self._download = download_service
         self._library = library_service
         self._playlist = playlist_service
+        self._theme_service = theme_service
         self._filler: "FillerService | None" = None
         self._pending_filler_youtube_id: str | None = None
         self._dry_run = dry_run
@@ -100,13 +138,18 @@ class MainWindow(QMainWindow):
         self._last_query = ""
         self._yt_limit = config.YT_SEARCH_LIMIT
         self.setWindowTitle("KaraokeManager")
-        self._load_stylesheet()
         self._build_ui()
         self._connect_karaoke_flow_signals()
         self._connect_widget_signals()
         self._connect_service_signals()
         self._app_mode.mode_changed.connect(self._sync_mode_pills)
         self._sync_mode_pills(self._app_mode.get_mode())
+        if self._theme_service is not None:
+            self._theme_service.theme_changed.connect(self._sync_theme_pills)
+            self._sync_theme_pills(self._theme_service.current_theme())
+        else:
+            self._theme_light_btn.setVisible(False)
+            self._theme_dark_btn.setVisible(False)
         self._refresh_library()
         self._refresh_playlists()
         app = QApplication.instance()
@@ -168,18 +211,15 @@ class MainWindow(QMainWindow):
         """Restituisce il widget coda per il wiring esterno."""
         return self._queue_widget
 
-    def _load_stylesheet(self) -> None:
-        """Carica QSS da assets."""
-        qss_path = Path(__file__).resolve().parent.parent / "assets" / "style.qss"
-        if qss_path.exists():
-            self.setStyleSheet(qss_path.read_text(encoding="utf-8"))
-
     def _build_ui(self) -> None:
         """Assembla layout principale con pannelli ridimensionabili."""
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.addLayout(self._build_top_bar())
+        self._top_bar = QWidget()
+        self._top_bar.setObjectName("topBar")
+        self._build_top_bar(QHBoxLayout(self._top_bar))
+        root.addWidget(self._top_bar, stretch=0)
 
         self._video_output = _VideoOutputWidget()
 
@@ -211,9 +251,9 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._search_widget, "Ricerca")
         self._tabs.addTab(self._library_widget, "Libreria")
         self._tabs.addTab(self._playlist_widget, "Playlist")
-        controls.addWidget(self._tabs)
+        controls.addWidget(self._tabs, stretch=1)
         self._player_widget = PlayerWidget()
-        controls.addWidget(self._player_widget)
+        controls.addWidget(self._player_widget, stretch=0)
 
         self._left_splitter = QSplitter(Qt.Orientation.Vertical)
         self._left_splitter.setHandleWidth(10)
@@ -230,15 +270,16 @@ class MainWindow(QMainWindow):
         self._main_splitter.addWidget(self._queue_widget)
         self._main_splitter.setStretchFactor(0, 3)
         self._main_splitter.setStretchFactor(1, 1)
-        root.addWidget(self._main_splitter)
+        root.addWidget(self._main_splitter, stretch=1)
 
         self._preview_maximized = False
         self._saved_left_sizes: list[int] | None = None
         self._saved_main_sizes: list[int] | None = None
+        self._splitters_initialized = False
 
-    def _build_top_bar(self) -> QHBoxLayout:
+    def _build_top_bar(self, bar: QHBoxLayout) -> None:
         """Barra superiore: modalità, consolle DJ, monitor esterno e sottofondo."""
-        bar = QHBoxLayout()
+        bar.setContentsMargins(0, 0, 0, 0)
         self._mode_karaoke_btn = QPushButton("Karaoke")
         self._mode_karaoke_btn.setObjectName("modeToggle")
         self._mode_karaoke_btn.setCheckable(True)
@@ -250,6 +291,17 @@ class MainWindow(QMainWindow):
         self._mode_dj_btn.setCheckable(True)
         self._mode_dj_btn.clicked.connect(self._on_mode_dj_clicked)
         bar.addWidget(self._mode_dj_btn)
+        bar.addSpacing(12)
+        self._theme_light_btn = QPushButton("Chiaro")
+        self._theme_light_btn.setObjectName("themeToggle")
+        self._theme_light_btn.setCheckable(True)
+        self._theme_light_btn.clicked.connect(self._on_theme_light_clicked)
+        bar.addWidget(self._theme_light_btn)
+        self._theme_dark_btn = QPushButton("Scuro")
+        self._theme_dark_btn.setObjectName("themeToggle")
+        self._theme_dark_btn.setCheckable(True)
+        self._theme_dark_btn.clicked.connect(self._on_theme_dark_clicked)
+        bar.addWidget(self._theme_dark_btn)
         self._dj_console_btn = QPushButton("Consolle DJ")
         self._dj_console_btn.setObjectName("secondaryButton")
         self._dj_console_btn.clicked.connect(self._on_dj_console_toggle)
@@ -270,7 +322,28 @@ class MainWindow(QMainWindow):
         self._filler_source.enabled_toggled.connect(self._on_filler_enabled)
         self._filler_source.volume_changed.connect(self._on_filler_volume)
         bar.addWidget(self._filler_source)
-        return bar
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Applica le dimensioni iniziali degli splitter al primo show."""
+        super().showEvent(event)
+        if not self._splitters_initialized:
+            QTimer.singleShot(0, self._apply_initial_splitter_sizes)
+            self._splitters_initialized = True
+
+    def _apply_initial_splitter_sizes(self) -> None:
+        """Imposta proporzioni iniziali video/controlli e colonna/coda."""
+        if self._preview_maximized:
+            return
+        left_total = self._left_splitter.height()
+        if left_total > 0:
+            controls_h = max(280, int(left_total * 0.42))
+            video_h = max(200, left_total - controls_h)
+            self._left_splitter.setSizes([video_h, controls_h])
+        main_total = self._main_splitter.width()
+        if main_total > 0:
+            left_w = max(400, int(main_total * 0.75))
+            queue_w = max(180, main_total - left_w)
+            self._main_splitter.setSizes([left_w, queue_w])
 
     def _connect_karaoke_flow_signals(self) -> None:
         """Collega i segnali del flow karaoke agli aggiornamenti UI (idempotente)."""
@@ -292,11 +365,14 @@ class MainWindow(QMainWindow):
     def _connect_widget_signals(self) -> None:
         """Collega segnali interni widget → handler."""
         self._search_widget.track_selected.connect(self._on_track_selected)
+        self._search_widget.preview_requested.connect(self._on_preview_requested)
+        self._search_widget.save_to_library_requested.connect(self._on_save_to_library)
         self._search_widget.load_more_requested.connect(self._on_load_more)
         self._search_widget.set_as_filler_requested.connect(self._on_set_as_filler)
         self._library_widget.track_selected.connect(self._on_track_selected)
         self._library_widget.refresh_requested.connect(self._on_library_refresh)
         self._library_widget.add_to_playlist_requested.connect(self._on_add_to_playlist)
+        self._library_widget.delete_requested.connect(self._on_library_delete_requested)
         self._library_widget.set_as_filler_requested.connect(self._on_set_as_filler)
         self._playlist_widget.track_selected.connect(self._on_track_selected)
         self._playlist_widget.create_requested.connect(self._on_playlist_create)
@@ -357,14 +433,20 @@ class MainWindow(QMainWindow):
             try:
                 self._download.download_progress.disconnect(self._on_download_progress)
                 self._download.download_complete.disconnect(self._on_download_complete)
+                self._download.download_error.disconnect(self._on_download_error)
             except TypeError:
                 pass
             self._download.download_progress.connect(self._on_download_progress)
             self._download.download_complete.connect(self._on_download_complete)
+            self._download.download_error.connect(self._on_download_error)
 
     def video_output_widget(self) -> QWidget:
         """Restituisce il widget per embed VLC."""
         return self._video_output
+
+    def set_vlc_output_rebind(self, callback: Callable[[QWidget], None]) -> None:
+        """Riaggancia l'output VLC al resize del pannello anteprima."""
+        self._video_output.set_vlc_resize_callback(callback)
 
     def _on_search_text_changed(self, text: str) -> None:
         """Avvia il debounce della ricerca/filtro."""
@@ -372,12 +454,10 @@ class MainWindow(QMainWindow):
         self._search_debounce.start()
 
     def _dispatch_search(self) -> None:
-        """Instrada la query: ricerca unificata o filtro libreria a seconda della scheda."""
-        query = self._pending_query.strip()
-        if self._tabs.currentWidget() is self._library_widget:
-            self._library_widget.filter(query)
-        else:
-            self._on_search(query)
+        """Esegue la ricerca unificata solo dalla scheda Ricerca."""
+        if self._tabs.currentWidget() is not self._search_widget:
+            return
+        self._on_search(self._pending_query.strip())
 
     def _on_search(self, query: str) -> None:
         """Avvia ricerca tramite service, ripartendo dalla prima pagina YouTube."""
@@ -409,8 +489,44 @@ class MainWindow(QMainWindow):
         name = self._singer_input.text().strip() or "Ospite"
         if self._queue is not None:
             self._queue.add(track, singer_name=name)
-        if track.get("source") == "youtube" and self._search is not None:
+
+    def _on_preview_requested(self, track: dict) -> None:
+        """Riproduce anteprima stream/local senza accodare né scaricare."""
+        if self._player is None:
+            QMessageBox.information(
+                self,
+                "Anteprima",
+                "Anteprima non disponibile in questa modalità.",
+            )
+            return
+        if self._karaoke_flow is not None:
+            self._karaoke_flow.preview_track(track)
+
+    def _on_save_to_library(self, track: dict) -> None:
+        """Avvia il download YouTube senza accodare."""
+        if self._search is not None and track.get("source") == "youtube":
             self._search.trigger_download_for_track(track)
+
+    def _on_library_delete_requested(self, track: dict) -> None:
+        """Elimina un brano dalla libreria dopo conferma."""
+        track_id = track.get("id")
+        if track_id is None or self._library is None:
+            return
+        title = track.get("title", "brano")
+        reply = QMessageBox.question(
+            self,
+            "Elimina dalla libreria",
+            f"Eliminare «{title}» dalla libreria?\n\nIl file verrà rimosso dal disco.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if self._library.delete_track(track_id):
+            self._on_library_refresh()
+            self._refresh_playlists()
+            if self._queue is not None:
+                self._queue_widget.set_queue(self._queue.get_queue())
 
     def _on_library_refresh(self, sort: str = "") -> None:
         """Aggiorna la lista della libreria locale."""
@@ -424,17 +540,13 @@ class MainWindow(QMainWindow):
         self._on_library_refresh()
 
     def _on_tab_changed(self, index: int) -> None:
-        """Applica placeholder e ricerca/filtro coerenti con la scheda attiva."""
-        query = self._search_input.text().strip()
+        """Aggiorna la scheda attiva senza propagare la query Ricerca al filtro libreria."""
         if self._tabs.widget(index) is self._library_widget:
-            self._search_input.setPlaceholderText("Filtra la libreria...")
             self._on_library_refresh()
-            self._library_widget.filter(query)
         elif self._tabs.widget(index) is self._playlist_widget:
             self._refresh_playlists()
         else:
-            self._search_input.setPlaceholderText("Cerca brani locali o YouTube...")
-            self._on_search(query)
+            self._on_search(self._search_input.text().strip())
 
     def _refresh_playlists(self) -> None:
         """Ricarica l'elenco delle playlist karaoke mantenendo la selezione."""
@@ -533,6 +645,28 @@ class MainWindow(QMainWindow):
         self._mode_karaoke_btn.style().polish(self._mode_karaoke_btn)
         self._mode_dj_btn.style().unpolish(self._mode_dj_btn)
         self._mode_dj_btn.style().polish(self._mode_dj_btn)
+
+    def _sync_theme_pills(self, theme: str) -> None:
+        """Aggiorna le pill tema chiaro/scuro nella titlebar."""
+        light_active = theme == config.UI_THEME_LIGHT
+        self._theme_light_btn.setChecked(light_active)
+        self._theme_dark_btn.setChecked(not light_active)
+        self._theme_light_btn.setObjectName("themeToggleActive" if light_active else "themeToggle")
+        self._theme_dark_btn.setObjectName("themeToggleActive" if not light_active else "themeToggle")
+        self._theme_light_btn.style().unpolish(self._theme_light_btn)
+        self._theme_light_btn.style().polish(self._theme_light_btn)
+        self._theme_dark_btn.style().unpolish(self._theme_dark_btn)
+        self._theme_dark_btn.style().polish(self._theme_dark_btn)
+
+    def _on_theme_light_clicked(self) -> None:
+        """Passa al tema chiaro (A)."""
+        if self._theme_service is not None:
+            self._theme_service.set_theme(config.UI_THEME_LIGHT)  # type: ignore[arg-type]
+
+    def _on_theme_dark_clicked(self) -> None:
+        """Passa al tema scuro (B)."""
+        if self._theme_service is not None:
+            self._theme_service.set_theme(config.UI_THEME_DARK)  # type: ignore[arg-type]
 
     def _on_play_pause(self) -> None:
         """Delega play/pausa a entrambi i flow (guard interno su modalità)."""
@@ -876,6 +1010,7 @@ class MainWindow(QMainWindow):
         if self._queue is not None:
             self._queue_widget.set_queue(self._queue.get_queue())
         self._on_library_refresh()
+        self._library_widget.clear_filter()
         if youtube_id == self._pending_filler_youtube_id:
             self._pending_filler_youtube_id = None
             local_path = track_dict.get("local_path") or ""
@@ -884,3 +1019,14 @@ class MainWindow(QMainWindow):
                     local_path,
                     clean_title(track_dict.get("title", "")),
                 )
+
+    def _on_download_error(self, youtube_id: str, message: str) -> None:
+        """Avvisa l'operatore se un download YouTube in background fallisce."""
+        logger.warning("Download fallito per %s: %s", youtube_id, message)
+        if self._queue is not None:
+            self._queue_widget.set_queue(self._queue.get_queue())
+        QMessageBox.warning(
+            self,
+            "Download non riuscito",
+            f"Impossibile scaricare il video YouTube ({youtube_id}).\n\n{message}",
+        )

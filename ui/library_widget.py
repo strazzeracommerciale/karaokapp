@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -24,6 +25,7 @@ class LibraryWidget(QWidget):
     track_selected = pyqtSignal(dict)
     refresh_requested = pyqtSignal(str)
     add_to_playlist_requested = pyqtSignal(dict)
+    delete_requested = pyqtSignal(dict)
     set_as_filler_requested = pyqtSignal(dict)
 
     def __init__(self) -> None:
@@ -50,6 +52,13 @@ class LibraryWidget(QWidget):
         top.addWidget(self._refresh_btn)
         top.addStretch()
         layout.addLayout(top)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filtra:"))
+        self._filter_input = QLineEdit()
+        self._filter_input.setPlaceholderText("Titolo o artista…")
+        self._filter_input.textChanged.connect(self._on_filter_changed)
+        filter_row.addWidget(self._filter_input)
+        layout.addLayout(filter_row)
         self._list = QListWidget()
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -77,7 +86,25 @@ class LibraryWidget(QWidget):
 
     def filter(self, text: str) -> None:
         """Limita la visualizzazione ai brani che contengono il testo."""
-        self._filter = (text or "").strip().lower()
+        normalized = (text or "").strip()
+        self._filter = normalized.lower()
+        if self._filter_input.text() != normalized:
+            self._filter_input.blockSignals(True)
+            self._filter_input.setText(normalized)
+            self._filter_input.blockSignals(False)
+        self._render()
+
+    def clear_filter(self) -> None:
+        """Rimuove il filtro e mostra l'intera libreria."""
+        self.filter("")
+
+    def active_filter(self) -> str:
+        """Restituisce il testo del filtro attivo."""
+        return self._filter
+
+    def _on_filter_changed(self, text: str) -> None:
+        """Aggiorna la lista mentre l'operatore digita nel campo filtro."""
+        self._filter = text.strip().lower()
         self._render()
 
     def _render(self) -> None:
@@ -99,6 +126,11 @@ class LibraryWidget(QWidget):
             self._list.addItem(item)
             shown += 1
         self._empty_label.setVisible(shown == 0)
+        if shown == 0:
+            if self._filter:
+                self._empty_label.setText("Nessun brano corrisponde al filtro")
+            else:
+                self._empty_label.setText("Nessun brano in libreria")
         logger.debug("Libreria visualizzata: %d brani (filtro='%s')", shown, self._filter)
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
@@ -117,7 +149,7 @@ class LibraryWidget(QWidget):
             self.add_to_playlist_requested.emit(track)
 
     def _on_context_menu(self, pos) -> None:
-        """Menu contestuale: imposta il brano come sottofondo."""
+        """Menu contestuale: sottofondo ed eliminazione."""
         item = self._list.itemAt(pos)
         if item is None:
             return
@@ -125,6 +157,10 @@ class LibraryWidget(QWidget):
         if not track:
             return
         menu = QMenu(self)
-        action = menu.addAction("Imposta come sottofondo")
-        if menu.exec(self._list.mapToGlobal(pos)) is action:
+        filler_action = menu.addAction("Imposta come sottofondo")
+        delete_action = menu.addAction("Elimina dalla libreria")
+        chosen = menu.exec(self._list.mapToGlobal(pos))
+        if chosen is filler_action:
             self.set_as_filler_requested.emit(track)
+        elif chosen is delete_action:
+            self.delete_requested.emit(track)

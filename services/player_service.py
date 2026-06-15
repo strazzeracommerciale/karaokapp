@@ -40,6 +40,7 @@ class PlayerService(QObject):
         self._current_path: str | None = None
         self._secondary_active = False
         self._volume = 100
+        self._last_resolve_error = ""
         self._vlc.set_position_callback(self._on_position_changed)
         self._vlc.set_end_callback(self._on_playback_ended)
 
@@ -52,11 +53,7 @@ class PlayerService(QObject):
         path = self._resolve_path(track)
         if not path:
             logger.error("Track senza path o stream_url: %s", track.get("title"))
-            if track.get("source") == "youtube":
-                reason = "Video YouTube non disponibile (rimosso o privato)."
-            else:
-                reason = "File non trovato o non riproducibile."
-            self.track_failed.emit(track, reason)
+            self.track_failed.emit(track, self._resolve_failure_reason(track))
             return
 
         start_time = 0.0
@@ -121,8 +118,23 @@ class PlayerService(QObject):
                 return self._ytdlp.get_stream_url(youtube_id)
             except Exception as exc:  # noqa: BLE001 - errore di rete, log e abort
                 logger.error("Stream URL non risolvibile: %s", exc)
+                self._last_resolve_error = str(exc)
                 return ""
         return ""
+
+    def _resolve_failure_reason(self, track: dict) -> str:
+        """Messaggio d'errore leggibile quando la riproduzione non parte."""
+        if track.get("source") == "youtube":
+            detail = getattr(self, "_last_resolve_error", "")
+            if detail:
+                return (
+                    "Impossibile aprire lo stream YouTube.\n"
+                    f"Dettaglio: {detail}\n\n"
+                    "Attendi che il download in background termini oppure "
+                    "riprova tra qualche secondo."
+                )
+            return "Video YouTube non disponibile (rimosso o privato)."
+        return "File non trovato o non riproducibile."
 
     def pause_resume(self) -> None:
         """Alterna tra pausa e ripresa su entrambi i monitor."""
@@ -155,6 +167,15 @@ class PlayerService(QObject):
         self._volume = max(0, min(100, int(volume)))
         self._vlc.set_mute(False)
         self._vlc.set_volume(self._volume)
+
+    def current_local_path(self) -> str | None:
+        """Restituisce il path del file locale in riproduzione, o None se stream remoto."""
+        if not self._current_path:
+            return None
+        if self._current_path.startswith(("http://", "https://")):
+            return None
+        path = Path(self._current_path)
+        return self._current_path if path.exists() else None
 
     def get_state(self) -> dict:
         """Restituisce lo stato corrente del player."""

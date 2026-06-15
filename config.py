@@ -1,12 +1,33 @@
 """Costanti globali e path del progetto KaraokeManager."""
 
+import os as _os
 import shutil as _shutil
 import sys as _sys
 import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-BASE_DIR: Path = Path(__file__).resolve().parent
+APP_VERSION: str = "1.0.2"
+
+
+def _install_dir() -> Path:
+    """Directory dell'installazione (cartella dell'exe se frozen, repo in sviluppo)."""
+    if getattr(_sys, "frozen", False):
+        return Path(_sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _bundle_dir() -> Path:
+    """Risorse read-only incluse nel pacchetto PyInstaller (_MEIPASS se frozen)."""
+    if getattr(_sys, "frozen", False):
+        return Path(getattr(_sys, "_MEIPASS", _install_dir()))
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR: Path = _install_dir()
+BUNDLE_DIR: Path = _bundle_dir()
+ASSETS_DIR: Path = BUNDLE_DIR / "assets"
+SCHEMA_PATH: Path = BUNDLE_DIR / "db" / "schema.sql"
 DB_PATH: Path = BASE_DIR / "data" / "karaoke.db"
 MEDIA_DIR: Path = BASE_DIR / "media"
 DOWNLOAD_DIR: Path = MEDIA_DIR / "downloads"
@@ -29,6 +50,11 @@ DJ_CONSOLE_DEFAULT_WIDTH: int = 900
 DJ_CONSOLE_DEFAULT_HEIGHT: int = 700
 DJ_CONSOLE_SETTINGS_GEOMETRY_KEY: str = "dj_console/geometry"
 
+UI_THEME_SETTINGS_KEY: str = "ui/theme"
+UI_THEME_LIGHT: str = "light"
+UI_THEME_DARK: str = "dark"
+UI_THEME_DEFAULT: str = UI_THEME_DARK
+
 # Sottofondo (filler) durante le pause
 FILLER_DEFAULT_VOLUME: int = 30
 FILLER_FADE_MS: int = 2000
@@ -42,15 +68,25 @@ else:
     FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video",)
 
 if _sys.platform == "win32":
-    # Cerca ffmpeg nel PATH di sistema prima, poi nel percorso WinGet noto.
-    _ffmpeg_in_path = _shutil.which("ffmpeg")
-    if _ffmpeg_in_path:
-        FFMPEG_BIN: str = _ffmpeg_in_path
+    _bundled_vlc = BASE_DIR / "vlc"
+    if _bundled_vlc.is_dir():
+        _os.add_dll_directory(str(_bundled_vlc))
+        _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
+
+if _sys.platform == "win32":
+    _bundled_ffmpeg = BASE_DIR / "bin" / "ffmpeg.exe"
+    if _bundled_ffmpeg.is_file():
+        FFMPEG_BIN: str = str(_bundled_ffmpeg)
     else:
-        FFMPEG_BIN: str = (
-            str(Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet"
-            / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
-            / "ffmpeg-8.1.1-full_build" / "bin" / "ffmpeg.exe")
-        )
+        # Cerca ffmpeg nel PATH di sistema prima, poi nel percorso WinGet noto.
+        _ffmpeg_in_path = _shutil.which("ffmpeg")
+        if _ffmpeg_in_path:
+            FFMPEG_BIN: str = _ffmpeg_in_path
+        else:
+            FFMPEG_BIN: str = (
+                str(Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet"
+                / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+                / "ffmpeg-8.1.1-full_build" / "bin" / "ffmpeg.exe")
+            )
 else:
     FFMPEG_BIN: str = "ffmpeg"

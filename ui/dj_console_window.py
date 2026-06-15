@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -65,19 +66,12 @@ class DjConsoleWindow(QWidget):
         self._last_yt_limit = config.YT_SEARCH_LIMIT
         self.setWindowTitle("Consolle DJ — KaraokeManager")
         self.resize(config.DJ_CONSOLE_DEFAULT_WIDTH, config.DJ_CONSOLE_DEFAULT_HEIGHT)
-        self._load_stylesheet()
         self._build_ui()
         self._connect_signals()
         self._sync_mode_pills(self._app_mode.get_mode())
         self._update_player_controls()
         self._refresh_library()
         self._refresh_playlists()
-
-    def _load_stylesheet(self) -> None:
-        """Carica QSS da assets."""
-        qss_path = Path(__file__).resolve().parent.parent / "assets" / "style.qss"
-        if qss_path.exists():
-            self.setStyleSheet(qss_path.read_text(encoding="utf-8"))
 
     def _build_ui(self) -> None:
         """Assembla header e tab Runtime / Libreria / Playlist / Ricerca."""
@@ -96,7 +90,7 @@ class DjConsoleWindow(QWidget):
         root.addWidget(self._tabs)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #9a9aa6;")
+        self._status_label.setObjectName("mutedLabel")
         root.addWidget(self._status_label)
 
     def _build_header(self) -> QHBoxLayout:
@@ -119,7 +113,7 @@ class DjConsoleWindow(QWidget):
         self._track_title.setStyleSheet("font-weight: 600;")
         bar.addWidget(self._track_title)
         self._track_artist = QLabel("")
-        self._track_artist.setStyleSheet("color: #9a9aa6;")
+        self._track_artist.setObjectName("mutedLabel")
         bar.addWidget(self._track_artist)
 
         bar.addStretch()
@@ -152,6 +146,7 @@ class DjConsoleWindow(QWidget):
         self._library_widget.import_paths_selected.connect(self._on_import_paths)
         self._library_widget.scan_requested.connect(self._on_scan_library)
         self._library_widget.track_selected.connect(self._add_track_to_runtime)
+        self._library_widget.delete_requested.connect(self._on_library_delete_requested)
         self._library_widget.set_as_filler_requested.connect(self.dj_filler_track_requested.emit)
 
         self._playlist_widget.create_requested.connect(self._on_playlist_create)
@@ -163,6 +158,8 @@ class DjConsoleWindow(QWidget):
 
         self._search_widget.search_requested.connect(self._on_search_requested)
         self._search_widget.track_selected.connect(self._on_search_track_selected)
+        self._search_widget.preview_requested.connect(self._on_search_preview_requested)
+        self._search_widget.save_to_library_requested.connect(self._on_save_to_library)
         self._dj_search.results_ready.connect(self._on_search_results)
 
         try:
@@ -262,9 +259,43 @@ class DjConsoleWindow(QWidget):
         self._search_widget.set_results(results, can_load_more)
 
     def _on_search_track_selected(self, track: dict) -> None:
-        """Aggiunge al runtime e avvia download YouTube se necessario."""
+        """Aggiunge al runtime senza avviare download automatico."""
         self._add_track_to_runtime(track)
-        self._dj_search.trigger_download_for_track(track)
+
+    def _on_search_preview_requested(self, track: dict) -> None:
+        """Riproduce anteprima stream/local senza runtime né download."""
+        if self._player is None:
+            QMessageBox.information(
+                self,
+                "Anteprima",
+                "Anteprima non disponibile in questa modalità.",
+            )
+            return
+        self._dj_flow.preview_track(track)
+
+    def _on_save_to_library(self, track: dict) -> None:
+        """Avvia il download YouTube senza aggiungere al runtime."""
+        if track.get("source") == "youtube":
+            self._dj_search.trigger_download_for_track(track)
+
+    def _on_library_delete_requested(self, track: dict) -> None:
+        """Elimina un brano DJ dalla libreria dopo conferma."""
+        track_id = track.get("id")
+        if track_id is None:
+            return
+        title = track.get("title", "brano")
+        reply = QMessageBox.question(
+            self,
+            "Elimina dalla libreria",
+            f"Eliminare «{title}» dalla libreria?\n\nIl file verrà rimosso dal disco.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if self._library.delete_track(track_id):
+            self._refresh_library()
+            self._refresh_playlists()
 
     def _on_download_progress(self, youtube_id: str, _percent: int) -> None:
         """Aggiorna badge download nei risultati ricerca DJ."""

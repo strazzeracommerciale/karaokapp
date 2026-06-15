@@ -1,9 +1,11 @@
 """Widget risultati di ricerca (input gestito da MainWindow)."""
 
 import logging
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -15,10 +17,23 @@ from PyQt6.QtWidgets import (
 logger = logging.getLogger(__name__)
 
 
+def _has_local_file(track: dict) -> bool:
+    """True se il brano ha un file locale esistente."""
+    local_path = track.get("local_path") or ""
+    return bool(local_path) and Path(local_path).exists()
+
+
+def _is_youtube_stream_only(track: dict) -> bool:
+    """True se il risultato è YouTube senza file locale scaricato."""
+    return track.get("source") == "youtube" and not _has_local_file(track)
+
+
 class SearchWidget(QWidget):
-    """Lista dei risultati di ricerca con doppio click per accodare."""
+    """Lista dei risultati di ricerca con anteprima e accodamento."""
 
     track_selected = pyqtSignal(dict)
+    preview_requested = pyqtSignal(dict)
+    save_to_library_requested = pyqtSignal(dict)
     load_more_requested = pyqtSignal()
     set_as_filler_requested = pyqtSignal(dict)
 
@@ -41,15 +56,22 @@ class SearchWidget(QWidget):
         self._load_more_btn.clicked.connect(self.load_more_requested.emit)
         self._load_more_btn.setVisible(False)
         layout.addWidget(self._load_more_btn)
+        hint = QLabel("Doppio click su [YT]: anteprima · tasto destro: accoda o salva")
+        hint.setObjectName("mutedLabel")
+        layout.addWidget(hint)
 
     def _on_item_double_clicked(self, item) -> None:
-        """Emette track_selected con i dati del risultato."""
+        """YouTube non scaricato: anteprima; altrimenti accoda."""
         track = item.data(256)
-        if track:
+        if not track:
+            return
+        if _is_youtube_stream_only(track):
+            self.preview_requested.emit(track)
+        else:
             self.track_selected.emit(track)
 
     def _on_context_menu(self, pos) -> None:
-        """Menu contestuale: imposta il risultato come brano di sottofondo."""
+        """Menu contestuale: anteprima, accoda, salva e sottofondo."""
         item = self._results_list.itemAt(pos)
         if item is None:
             return
@@ -57,8 +79,20 @@ class SearchWidget(QWidget):
         if not track:
             return
         menu = QMenu(self)
-        action = menu.addAction("Imposta come sottofondo")
-        if menu.exec(self._results_list.mapToGlobal(pos)) is action:
+        preview_action = menu.addAction("Anteprima")
+        queue_action = menu.addAction("Accoda in coda")
+        save_action = None
+        if _is_youtube_stream_only(track):
+            save_action = menu.addAction("Salva in libreria")
+        filler_action = menu.addAction("Imposta come sottofondo")
+        chosen = menu.exec(self._results_list.mapToGlobal(pos))
+        if chosen is preview_action:
+            self.preview_requested.emit(track)
+        elif chosen is queue_action:
+            self.track_selected.emit(track)
+        elif save_action is not None and chosen is save_action:
+            self.save_to_library_requested.emit(track)
+        elif chosen is filler_action:
             self.set_as_filler_requested.emit(track)
 
     def set_results(self, results: list[dict], can_load_more: bool = False) -> None:

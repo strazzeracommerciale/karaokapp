@@ -82,8 +82,36 @@ def test_scan_dj_media_dir_registers_new_files() -> None:
         assert len(service.list_tracks(track_type="dj")) == 2
 
 
+def test_delete_track_removes_db_row_and_file() -> None:
+    """delete_track rimuove catalogo, riferimenti e file locale."""
+    conn = _make_conn()
+    service = LibraryService(conn)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        source = Path(tmp_dir) / "ToDelete.mp3"
+        source.write_bytes(b"audio")
+        imported = service.import_files([source], track_type="karaoke")
+        track_id = imported[0]["id"]
+        conn.execute("INSERT INTO playlists (name, mode) VALUES ('Test', 'karaoke')")
+        playlist_id = conn.execute("SELECT id FROM playlists").fetchone()[0]
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, 1)",
+            (playlist_id, track_id),
+        )
+        conn.commit()
+
+        assert service.delete_track(track_id)
+        assert not source.exists()
+        assert service.list_tracks(track_type="karaoke") == []
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+        assert remaining == 0
+
+
 if __name__ == "__main__":
     test_import_dj_registers_original_path()
     test_import_dj_dedup_and_cross_type()
     test_scan_dj_media_dir_registers_new_files()
+    test_delete_track_removes_db_row_and_file()
     print("OK")

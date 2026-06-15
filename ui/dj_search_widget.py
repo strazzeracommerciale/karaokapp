@@ -9,12 +9,14 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 import config
+from ui.search_widget import _is_youtube_stream_only
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,8 @@ class DjSearchWidget(QWidget):
 
     search_requested = pyqtSignal(str, int)
     track_selected = pyqtSignal(dict)
+    preview_requested = pyqtSignal(dict)
+    save_to_library_requested = pyqtSignal(dict)
 
     def __init__(self) -> None:
         """Costruisce campo query e lista risultati."""
@@ -53,6 +57,8 @@ class DjSearchWidget(QWidget):
 
         self._results_list = QListWidget()
         self._results_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._results_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._results_list.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._results_list)
 
         self._load_more_btn = QPushButton("Mostra altri risultati YouTube")
@@ -64,7 +70,9 @@ class DjSearchWidget(QWidget):
         self._empty_label = QLabel("Nessun risultato.")
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
-        layout.addWidget(QLabel("Doppio click su un risultato per aggiungerlo al runtime."))
+        hint = QLabel("Doppio click su [YT]: anteprima · tasto destro: aggiungi o salva")
+        hint.setObjectName("mutedLabel")
+        layout.addWidget(hint)
 
     def _on_search_text_changed(self, text: str) -> None:
         """Avvia il debounce della ricerca."""
@@ -121,7 +129,33 @@ class DjSearchWidget(QWidget):
                 item.setText(f"[DL] {track.get('title', '')}{artist_part}")
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
-        """Emette track_selected per aggiungere il brano al runtime."""
+        """YouTube non scaricato: anteprima; altrimenti aggiunge al runtime."""
         track = item.data(_TRACK_DATA_ROLE)
-        if track:
+        if not track:
+            return
+        if _is_youtube_stream_only(track):
+            self.preview_requested.emit(track)
+        else:
             self.track_selected.emit(track)
+
+    def _on_context_menu(self, pos) -> None:
+        """Menu contestuale: anteprima, runtime, salva."""
+        item = self._results_list.itemAt(pos)
+        if item is None:
+            return
+        track = item.data(_TRACK_DATA_ROLE)
+        if not track:
+            return
+        menu = QMenu(self)
+        preview_action = menu.addAction("Anteprima")
+        runtime_action = menu.addAction("Aggiungi al runtime")
+        save_action = None
+        if _is_youtube_stream_only(track):
+            save_action = menu.addAction("Salva in libreria")
+        chosen = menu.exec(self._results_list.mapToGlobal(pos))
+        if chosen is preview_action:
+            self.preview_requested.emit(track)
+        elif chosen is runtime_action:
+            self.track_selected.emit(track)
+        elif save_action is not None and chosen is save_action:
+            self.save_to_library_requested.emit(track)

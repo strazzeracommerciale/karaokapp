@@ -32,6 +32,7 @@ class DjLibraryWidget(QWidget):
     refresh_requested = pyqtSignal(str)
     import_paths_selected = pyqtSignal(list)
     scan_requested = pyqtSignal()
+    delete_requested = pyqtSignal(dict)
     set_as_filler_requested = pyqtSignal(dict)
 
     def __init__(self) -> None:
@@ -151,7 +152,7 @@ class DjLibraryWidget(QWidget):
             self.track_selected.emit(track)
 
     def _on_context_menu(self, pos) -> None:
-        """Menu contestuale: imposta il brano DJ come sottofondo."""
+        """Menu contestuale: sottofondo ed eliminazione."""
         item = self._list.itemAt(pos)
         if item is None:
             return
@@ -159,6 +160,10 @@ class DjLibraryWidget(QWidget):
         if not track:
             return
         menu = QMenu(self)
-        action = menu.addAction("Imposta come sottofondo")
-        if menu.exec(self._list.mapToGlobal(pos)) is action:
+        filler_action = menu.addAction("Imposta come sottofondo")
+        delete_action = menu.addAction("Elimina dalla libreria")
+        chosen = menu.exec(self._list.mapToGlobal(pos))
+        if chosen is filler_action:
             self.set_as_filler_requested.emit(track)
+        elif chosen is delete_action:
+            self.delete_requested.emit(track)

@@ -148,6 +148,32 @@ class LibraryService:
             )
         logger.info("Punto di inizio salvato: track_id=%s -> %.1fs", track_id, value)
 
+    def delete_track(self, track_id: int, *, remove_file: bool = True) -> bool:
+        """Rimuove un brano dal catalogo e, opzionalmente, il file locale associato."""
+        row = self._conn.execute(
+            "SELECT id, local_path FROM tracks WHERE id = ?",
+            (track_id,),
+        ).fetchone()
+        if row is None:
+            logger.warning("Eliminazione ignorata: track_id=%s inesistente", track_id)
+            return False
+        local_path = row["local_path"]
+        with self._conn:
+            self._conn.execute("DELETE FROM playlist_tracks WHERE track_id = ?", (track_id,))
+            self._conn.execute("DELETE FROM queue WHERE track_id = ?", (track_id,))
+            self._conn.execute("DELETE FROM download_log WHERE track_id = ?", (track_id,))
+            self._conn.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+        if remove_file and local_path:
+            path = Path(local_path)
+            if path.is_file():
+                try:
+                    path.unlink()
+                    logger.info("File eliminato: %s", path)
+                except OSError as exc:
+                    logger.warning("Impossibile eliminare %s: %s", path, exc)
+        logger.info("Brano eliminato dalla libreria: track_id=%s", track_id)
+        return True
+
     def get_start_offset(self, track_id: int) -> float:
         """Restituisce il punto di inizio memorizzato per un brano (0 se assente)."""
         row = self._conn.execute(

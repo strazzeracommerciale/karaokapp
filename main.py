@@ -23,6 +23,7 @@ from services.search_service import SearchService
 from ui.dj_console_window import DjConsoleWindow
 from ui.hdmi_window import HdmiWindow
 from ui.main_window import MainWindow
+from ui.theme_service import ThemeService
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,9 @@ def main() -> int:
 
     app = QApplication(sys.argv)
 
+    theme_service = ThemeService()
+    theme_service.apply_globally()
+
     app.aboutToQuit.connect(_cleanup)
 
     db_core.migrate()
@@ -133,6 +137,7 @@ def main() -> int:
         download_service=None,
         library_service=library_service,
         playlist_service=playlist_service,
+        theme_service=theme_service,
         dry_run=args.dry_run,
     )
     main_window.resize(1200, 800)
@@ -176,6 +181,7 @@ def main() -> int:
         filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
         filler_service = FillerService(filler_engine)
         main_window.wire_services(player_service, search_service, download_service)
+        main_window.set_vlc_output_rebind(vlc_engine.set_output_widget)
         main_window.set_filler_service(filler_service)
         dj_playback_flow.set_player(player_service)
         dj_playback_flow.set_filler(filler_service)

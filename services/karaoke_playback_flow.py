@@ -1,6 +1,7 @@
 """Orchestrazione playback per la modalità karaoke."""
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -101,6 +102,15 @@ class KaraokePlaybackFlow(QObject):
             else:
                 self._filler.interrupt()
 
+    def preview_track(self, track: dict) -> None:
+        """Riproduce anteprima senza accodare né avviare download."""
+        if not self._is_karaoke_active() or self._is_dj_playback_active():
+            return
+        if self._player is None:
+            return
+        self._pending_track = None
+        self._player.play_track(track)
+
     def stop(self) -> None:
         """Ferma la riproduzione e avvia il sottofondo."""
         if not self._is_karaoke_active() or self._is_dj_playback_active():
@@ -148,7 +158,7 @@ class KaraokePlaybackFlow(QObject):
             clean_title(track.get("title", "")),
             track.get("artist"),
         )
-        self.start_save_enabled_changed.emit(self._is_local_track(track))
+        self.start_save_enabled_changed.emit(self._can_save_start_offset(track))
         track_id = track.get("id")
         if self._library is not None and track_id is not None:
             self._library.record_play(track_id)
@@ -179,7 +189,7 @@ class KaraokePlaybackFlow(QObject):
         if not self._is_karaoke_active():
             return None
         track = self._current_playing_track
-        if self._library is None or not self._is_local_track(track):
+        if self._library is None or not self._can_save_start_offset(track):
             return None
         state = self._player.get_state() if self._player is not None else {}
         position = float(state.get("position", 0.0))
@@ -226,7 +236,23 @@ class KaraokePlaybackFlow(QObject):
         ):
             self._search.trigger_download_for_track(item)
 
+    def _can_save_start_offset(self, track: dict | None) -> bool:
+        """True se il brano ha id e sta riproducendo (o è) un file locale."""
+        if not track or track.get("id") is None:
+            return False
+        if self._track_has_local_file(track):
+            return True
+        return self._player is not None and self._player.current_local_path() is not None
+
+    @staticmethod
+    def _track_has_local_file(track: dict) -> bool:
+        """True se il dict track punta a un file locale esistente."""
+        local_path = track.get("local_path") or ""
+        return bool(local_path) and Path(local_path).exists()
+
     @staticmethod
     def _is_local_track(track: dict | None) -> bool:
         """True se il brano è un file locale con id valido."""
-        return bool(track) and track.get("id") is not None and bool(track.get("local_path"))
+        return bool(track) and track.get("id") is not None and KaraokePlaybackFlow._track_has_local_file(
+            track
+        )

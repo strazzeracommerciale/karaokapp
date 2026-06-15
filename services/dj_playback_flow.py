@@ -97,6 +97,20 @@ class DjPlaybackFlow(QObject):
             return
         self._advance_and_play(start_filler_on_end=True)
 
+    def preview_track(self, track: dict) -> None:
+        """Riproduce anteprima senza aggiungere al runtime né avviare download."""
+        if self._player is None:
+            return
+        self._dj_owns_playback = True
+        if self._filler is not None:
+            self._filler.interrupt()
+        self._player.play_track(track)
+        self.track_info_updated.emit(
+            clean_title(track.get("title", "")),
+            track.get("artist"),
+        )
+        logger.info("DJ anteprima: %s", track.get("title"))
+
     def on_track_started(self, track: dict) -> None:
         """Interrompe il filler e aggiorna le info brano se il DJ possiede il playback."""
         if not self._dj_owns_playback:

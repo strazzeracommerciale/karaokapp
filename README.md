@@ -24,13 +24,51 @@ con supporto dual monitor e consolle DJ dedicata.
 - VLC 64-bit installato e nel PATH di sistema
 - ffmpeg (richiesto da yt-dlp per la conversione audio/video)
 
-## Installazione
+## Installazione (sviluppo)
 
 ```bash
 git clone https://github.com/strazzeracommerciale/karaokapp.git
+cd karaoke_manager
 pip install -r requirements.txt
 python main.py
 ```
+
+## Distribuzione su altro PC (Windows)
+
+È possibile creare un **installer unico** che include l'app, Python, PyQt6, yt-dlp, ffmpeg e le librerie VLC — senza che l'utente finale installi nulla manualmente.
+
+### Sul PC di build (una tantum)
+
+Prerequisiti:
+
+- Python 3.11+
+- [VLC 64-bit](https://www.videolan.org/vlc/)
+- ffmpeg nel PATH (`winget install Gyan.FFmpeg`)
+- (consigliato) [Inno Setup 6](https://jrsoftware.org/isinfo.php) per generare un `.exe` di setup
+
+```powershell
+cd karaoke_manager
+.\build\build_windows.ps1
+```
+
+Output:
+
+| File/cartella | Descrizione |
+|---------------|-------------|
+| `dist\KaraokeManager\` | Versione portabile (copiabile su chiavetta) |
+| `dist\KaraokeManager-Setup.exe` | Installer per l'utente finale (se Inno Setup è installato) |
+
+### Sul PC di destinazione
+
+1. Eseguire `KaraokeManager-Setup.exe` (oppure copiare la cartella `KaraokeManager`).
+2. Avviare **KaraokeManager** dal menu Start o dal collegamento desktop.
+3. Database, download e log restano in `data\`, `media\` e `logs\` accanto al programma.
+
+Non serve Python, pip, VLC o ffmpeg separati: sono già inclusi nel pacchetto.
+
+Per saltare la creazione dell'installer: `.\build\build_windows.ps1 -SkipInstaller`
+
+Per VLC installato in percorso non standard: `.\build\build_windows.ps1 -VlcPath "D:\VLC"`
 
 ## Struttura del progetto
 

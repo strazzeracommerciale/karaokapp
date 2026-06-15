@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QWidget,
 )
@@ -32,6 +33,8 @@ class FillerSourceWidget(QWidget):
         self._playlists: list[dict] = []
         self._build_ui()
         self._sync_mode_controls()
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setMaximumHeight(self.sizeHint().height())
 
     def _build_ui(self) -> None:
         """Assembla dropdown, picker, shuffle, attivo e volume."""
@@ -57,7 +60,7 @@ class FillerSourceWidget(QWidget):
         layout.addWidget(self._playlist_combo)
 
         self._source_label = QLabel("(nessuno)")
-        self._source_label.setStyleSheet("color: #9a9aa6;")
+        self._source_label.setObjectName("mutedLabel")
         layout.addWidget(self._source_label)
 
         self._shuffle_check = QCheckBox("Shuffle")

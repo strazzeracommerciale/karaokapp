@@ -29,7 +29,7 @@ def get_conn() -> sqlite3.Connection:
 
 def migrate() -> None:
     """Applica lo schema SQL creando le tabelle se non esistono."""
-    schema_path = Path(__file__).resolve().parent / "schema.sql"
+    schema_path = config.SCHEMA_PATH
     schema_sql = schema_path.read_text(encoding="utf-8")
     conn = get_conn()
     with conn:
