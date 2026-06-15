@@ -17,6 +17,18 @@ def _install_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _data_dir() -> Path:
+    """Directory scrivibile per database, media e log.
+
+    Su macOS il bundle .app in /Applications non è scrivibile: i dati utente
+    restano in ~/Library/Application Support/KaraokeManager/.
+    Su Windows (e in sviluppo) coincidono con la cartella dell'app.
+    """
+    if getattr(_sys, "frozen", False) and _sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    return _install_dir()
+
+
 def _bundle_dir() -> Path:
     """Risorse read-only incluse nel pacchetto PyInstaller (_MEIPASS se frozen)."""
     if getattr(_sys, "frozen", False):
@@ -24,7 +36,8 @@ def _bundle_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-BASE_DIR: Path = _install_dir()
+BASE_DIR: Path = _data_dir()
+INSTALL_DIR: Path = _install_dir()
 BUNDLE_DIR: Path = _bundle_dir()
 ASSETS_DIR: Path = BUNDLE_DIR / "assets"
 SCHEMA_PATH: Path = BUNDLE_DIR / "db" / "schema.sql"
@@ -68,13 +81,18 @@ else:
     FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video",)
 
 if _sys.platform == "win32":
-    _bundled_vlc = BASE_DIR / "vlc"
+    _bundled_vlc = INSTALL_DIR / "vlc"
     if _bundled_vlc.is_dir():
         _os.add_dll_directory(str(_bundled_vlc))
         _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
 
+if _sys.platform == "darwin":
+    _bundled_vlc = INSTALL_DIR / "vlc"
+    if _bundled_vlc.is_dir():
+        _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
+
 if _sys.platform == "win32":
-    _bundled_ffmpeg = BASE_DIR / "bin" / "ffmpeg.exe"
+    _bundled_ffmpeg = INSTALL_DIR / "bin" / "ffmpeg.exe"
     if _bundled_ffmpeg.is_file():
         FFMPEG_BIN: str = str(_bundled_ffmpeg)
     else:
@@ -88,5 +106,12 @@ if _sys.platform == "win32":
                 / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
                 / "ffmpeg-8.1.1-full_build" / "bin" / "ffmpeg.exe")
             )
+elif _sys.platform == "darwin":
+    _bundled_ffmpeg = INSTALL_DIR / "bin" / "ffmpeg"
+    if _bundled_ffmpeg.is_file():
+        FFMPEG_BIN: str = str(_bundled_ffmpeg)
+    else:
+        _ffmpeg_in_path = _shutil.which("ffmpeg")
+        FFMPEG_BIN: str = _ffmpeg_in_path or "ffmpeg"
 else:
     FFMPEG_BIN: str = "ffmpeg"

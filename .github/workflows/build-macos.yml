@@ -1,0 +1,57 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg and VLC
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew install ffmpeg
+          brew install --cask vlc
+          test -d "/Applications/VLC.app"
+
+      - name: Build .app and .dmg
+        run: |
+          chmod +x build/build_macos.sh
+          ./build/build_macos.sh ${{ matrix.arch }}
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: KaraokeManager-macos-${{ matrix.arch }}
+          path: dist/KaraokeManager-*-macOS-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+          retention-days: 90
