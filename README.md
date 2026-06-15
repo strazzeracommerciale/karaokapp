@@ -70,34 +70,13 @@ Per saltare la creazione dell'installer: `.\build\build_windows.ps1 -SkipInstall
 
 Per VLC installato in percorso non standard: `.\build\build_windows.ps1 -VlcPath "D:\VLC"`
 
-## Distribuzione su Mac (uso interno)
+## macOS — in standby
 
-`.dmg` **non firmato** per installazione interna. La build avviene **automaticamente su GitHub** (Actions).
+La release macOS è **sospesa**. Su Mac compaiono troppi ostacoli (Gatekeeper, VLC Intel vs Apple Silicon, strumenti di sviluppo) rispetto al tempo disponibile.
 
-### Build automatica (GitHub Actions)
+**Piattaforma supportata per l'uso operativo: Windows** (`KaraokeManager-Setup.exe`).
 
-A ogni push su `main` (o manualmente da **Actions → Build macOS → Run workflow**) vengono prodotti due pacchetti:
-
-| Artifact | Mac destinazione |
-|----------|------------------|
-| `KaraokeManager-macos-arm64` | Apple Silicon (M1, M2, …) |
-| `KaraokeManager-macos-x86_64` | Intel |
-
-Scarica l’artifact dalla scheda Actions → ultima run → **Artifacts**.
-
-**Guida installazione passo passo:** [`docs/INSTALL_MACOS.md`](docs/INSTALL_MACOS.md)
-
-### Build locale (opzionale)
-
-```bash
-chmod +x build/build_macos.sh
-./build/build_macos.sh
-```
-
-Dettagli: [`docs/BUILD_MACOS.md`](docs/BUILD_MACOS.md)
-
-- **Primo avvio:** tasto destro sull'app → **Apri** → **Apri** (Gatekeeper)
-- **Dati utente:** `~/Library/Application Support/KaraokeManager/`
+Il codice resta cross-platform (`python main.py` in sviluppo su Mac resta possibile). Script e workflow GitHub per il `.dmg` restano nel repo ma la build **non parte più automaticamente**; si riprenderà solo se servirà davvero.
 
 ## Struttura del progetto
 

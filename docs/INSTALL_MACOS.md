@@ -1,7 +1,8 @@
 # Installare KaraokeManager su Mac
 
-Guida passo passo per scaricare il programma da GitHub e installarlo.
-**Non serve installare Python, VLC o ffmpeg.**
+> **Stato: IN STANDBY** — non seguire questa guida per ora. Usare **Windows** (`KaraokeManager-Setup.exe`).
+
+Guida conservata per un eventuale ripresa della release macOS.
 
 ---
 

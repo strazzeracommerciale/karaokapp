@@ -1,8 +1,8 @@
 # Build macOS — KaraokeManager
 
-Guida alla creazione del `.dmg` per **uso interno** (senza Apple Developer account).
+> **Stato: IN STANDBY** — distribuzione `.dmg` sospesa. Usare Windows per l'installazione operativa.
 
-## Build automatica (consigliata)
+Guida tecnica conservata per un eventuale ripresa futura.
 
 La build è gestita da **GitHub Actions** (workflow `.github/workflows/build-macos.yml`):
 

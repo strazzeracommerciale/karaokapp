@@ -1,9 +1,15 @@
-name: Build macOS
+# Build macOS — IN STANDBY (non usare in produzione)
+#
+# La distribuzione macOS è sospesa: richiede troppa gestione manuale
+# (Gatekeeper, architetture Intel/ARM, VLC bundled) per l'uso interno attuale.
+# Windows resta la piattaforma supportata (build_windows.ps1 + Setup.exe).
+#
+# Per riattivare in futuro: decommentare i trigger "push" qui sotto.
+# Build manuale (solo sviluppo): Actions → Build macOS → Run workflow
+
+name: Build macOS (standby)
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
