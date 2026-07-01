@@ -1,7 +1,7 @@
 """Finestra consolle DJ separata dal pannello karaoke."""
 
 import logging
-from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QSettings, Qt, pyqtSignal
@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -21,22 +22,25 @@ from ui.dj_library_widget import DjLibraryWidget
 from ui.dj_playlist_widget import DjPlaylistWidget
 from ui.dj_runtime_widget import DjRuntimeWidget
 from ui.dj_search_widget import DjSearchWidget
+from ui.player_widget import PlayerWidget
+from ui.video_output_widget import VideoOutputWidget
+from utils.text import clean_title
 
 if TYPE_CHECKING:
     from services.app_mode_service import AppModeService
     from services.dj_playback_flow import DjPlaybackFlow
+    from services.dj_player_service import DjPlayerService
     from services.dj_runtime_service import DjRuntimeService
     from services.download_service import DownloadService
     from services.library_service import LibraryService
     from services.playlist_service import PlaylistService
-    from services.player_service import PlayerService
     from services.search_service import SearchService
 
 logger = logging.getLogger(__name__)
 
 
 class DjConsoleWindow(QWidget):
-    """Consolle DJ autonoma: runtime, libreria, playlist e ricerca."""
+    """Consolle DJ autonoma con player video dedicato."""
 
     dj_filler_track_requested = pyqtSignal(dict)
 
@@ -49,7 +53,7 @@ class DjConsoleWindow(QWidget):
         playlist_service: "PlaylistService",
         dj_search_service: "SearchService",
         download_service: "DownloadService",
-        player_service: "PlayerService | None" = None,
+        player_service: "DjPlayerService | None" = None,
     ) -> None:
         """Costruisce la finestra DJ e collega i service condivisi."""
         super().__init__(flags=Qt.WindowType.Window)
@@ -69,14 +73,22 @@ class DjConsoleWindow(QWidget):
         self._build_ui()
         self._connect_signals()
         self._sync_mode_pills(self._app_mode.get_mode())
-        self._update_player_controls()
         self._refresh_library()
         self._refresh_playlists()
+        if player_service is not None:
+            self.set_player(player_service)
 
     def _build_ui(self) -> None:
-        """Assembla header e tab Runtime / Libreria / Playlist / Ricerca."""
+        """Assembla player video, controlli e tab."""
         root = QVBoxLayout(self)
         root.addLayout(self._build_header())
+
+        self._video_output = VideoOutputWidget(min_height=180)
+        self._player_widget = PlayerWidget()
+        self._player_widget.set_start_save_enabled(False)
+        for button in self._player_widget.findChildren(QPushButton):
+            if button.text() == "Inizia da qui":
+                button.setVisible(False)
 
         self._tabs = QTabWidget()
         self._runtime_widget = DjRuntimeWidget(self._runtime)
@@ -87,14 +99,26 @@ class DjConsoleWindow(QWidget):
         self._tabs.addTab(self._library_widget, "Libreria")
         self._tabs.addTab(self._playlist_widget, "Playlist")
         self._tabs.addTab(self._search_widget, "Ricerca")
-        root.addWidget(self._tabs)
+
+        bottom_panel = QWidget()
+        bottom_layout = QVBoxLayout(bottom_panel)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.addWidget(self._player_widget)
+        bottom_layout.addWidget(self._tabs)
+
+        self._main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._main_splitter.addWidget(self._video_output)
+        self._main_splitter.addWidget(bottom_panel)
+        self._main_splitter.setStretchFactor(0, 2)
+        self._main_splitter.setStretchFactor(1, 3)
+        root.addWidget(self._main_splitter)
 
         self._status_label = QLabel("")
         self._status_label.setObjectName("mutedLabel")
         root.addWidget(self._status_label)
 
     def _build_header(self) -> QHBoxLayout:
-        """Barra superiore: pill modalità, mini player e chiudi."""
+        """Barra superiore: pill modalità e chiudi."""
         bar = QHBoxLayout()
         self._mode_karaoke_btn = QPushButton("Karaoke")
         self._mode_karaoke_btn.setObjectName("modeToggle")
@@ -118,17 +142,6 @@ class DjConsoleWindow(QWidget):
 
         bar.addStretch()
 
-        self._mini_play_btn = QPushButton("Play/Pause")
-        self._mini_play_btn.clicked.connect(self._dj_flow.play_pause)
-        bar.addWidget(self._mini_play_btn)
-        self._mini_skip_btn = QPushButton("Skip")
-        self._mini_skip_btn.clicked.connect(self._dj_flow.skip)
-        bar.addWidget(self._mini_skip_btn)
-
-        self._mini_stop_btn = QPushButton("Stop")
-        self._mini_stop_btn.clicked.connect(self._dj_flow.stop)
-        bar.addWidget(self._mini_stop_btn)
-
         close_btn = QPushButton("Chiudi")
         close_btn.setObjectName("secondaryButton")
         close_btn.clicked.connect(self.hide)
@@ -138,7 +151,12 @@ class DjConsoleWindow(QWidget):
     def _connect_signals(self) -> None:
         """Collega segnali UI ↔ service condivisi."""
         self._app_mode.mode_changed.connect(self._sync_mode_pills)
-        self._app_mode.mode_changed.connect(self._update_player_controls)
+
+        self._player_widget.play_pause_clicked.connect(self._dj_flow.play_pause)
+        self._player_widget.stop_clicked.connect(self._dj_flow.stop)
+        self._player_widget.skip_clicked.connect(self._dj_flow.skip)
+        self._player_widget.seek_requested.connect(self._on_seek)
+        self._player_widget.volume_changed.connect(self._on_volume)
 
         self._runtime_widget.save_as_playlist_requested.connect(self._on_save_runtime_as_playlist)
 
@@ -162,25 +180,44 @@ class DjConsoleWindow(QWidget):
         self._search_widget.save_to_library_requested.connect(self._on_save_to_library)
         self._dj_search.results_ready.connect(self._on_search_results)
 
-        try:
-            self._download.download_progress.disconnect(self._on_download_progress)
-            self._download.download_complete.disconnect(self._on_download_complete)
-        except TypeError:
-            pass
         self._download.download_progress.connect(self._on_download_progress)
         self._download.download_complete.connect(self._on_download_complete)
 
-        try:
-            self._dj_flow.track_info_updated.disconnect(self._on_track_info_updated)
-            self._dj_flow.status_message.disconnect(self._on_status_message)
-        except TypeError:
-            pass
         self._dj_flow.track_info_updated.connect(self._on_track_info_updated)
         self._dj_flow.status_message.connect(self._on_status_message)
+        self._dj_flow.track_failed.connect(self._on_track_failed)
 
-    def set_player(self, player_service: "PlayerService | None") -> None:
-        """Conserva il riferimento al player; la UI DJ usa i segnali del flow."""
+    def set_player(self, player_service: "DjPlayerService | None") -> None:
+        """Collega il DjPlayerService e i segnali verso flow e UI."""
         self._player = player_service
+        self._connect_player_signals()
+
+    def video_output_widget(self) -> VideoOutputWidget:
+        """Restituisce il widget per embed VLC DJ."""
+        return self._video_output
+
+    def set_vlc_output_rebind(self, callback: Callable[[QWidget], None]) -> None:
+        """Riaggancia l'output VLC DJ al resize del pannello anteprima."""
+        self._video_output.set_vlc_resize_callback(callback)
+
+    def _connect_player_signals(self) -> None:
+        """Collega segnali DjPlayerService → flow e widget (idempotente)."""
+        if self._player is None:
+            return
+        player = self._player
+        flow = self._dj_flow
+        for signal, slot in (
+            (player.track_started, flow.on_track_started),
+            (player.track_ended, flow.on_track_ended),
+            (player.track_failed, flow.on_track_failed),
+            (player.position_updated, self._player_widget.update_position),
+        ):
+            try:
+                signal.disconnect(slot)
+            except TypeError:
+                pass
+            signal.connect(slot)
+        player.set_volume(self._player_widget.volume())
 
     def showEvent(self, event) -> None:
         """Ripristina geometria salvata al primo show."""
@@ -209,15 +246,15 @@ class DjConsoleWindow(QWidget):
         self._mode_dj_btn.style().unpolish(self._mode_dj_btn)
         self._mode_dj_btn.style().polish(self._mode_dj_btn)
 
-    def _update_player_controls(self, _mode: str | None = None) -> None:
-        """Abilita i controlli mini player solo in modalità DJ."""
-        dj_active = self._app_mode.get_mode() == "dj"
-        self._mini_play_btn.setEnabled(dj_active)
-        self._mini_skip_btn.setEnabled(dj_active)
-        self._mini_stop_btn.setEnabled(dj_active)
-        if not dj_active:
-            self._track_title.setText("Nessun brano")
-            self._track_artist.setText("(modalità karaoke attiva)")
+    def _on_seek(self, seconds: float) -> None:
+        """Seek nel brano corrente del player DJ."""
+        if self._player is not None:
+            self._player.seek(seconds)
+
+    def _on_volume(self, value: int) -> None:
+        """Aggiorna il volume del player DJ."""
+        if self._player is not None:
+            self._player.set_volume(value)
 
     def _refresh_library(self, sort: str = "") -> None:
         """Ricarica la libreria DJ."""
@@ -263,7 +300,7 @@ class DjConsoleWindow(QWidget):
         self._add_track_to_runtime(track)
 
     def _on_search_preview_requested(self, track: dict) -> None:
-        """Riproduce anteprima stream/local senza runtime né download."""
+        """Riproduce anteprima stream/local nel player DJ."""
         if self._player is None:
             QMessageBox.information(
                 self,
@@ -355,12 +392,23 @@ class DjConsoleWindow(QWidget):
         logger.info("Runtime salvato come playlist '%s' (%d brani)", name.strip(), added)
 
     def _on_track_info_updated(self, title: str, artist: object) -> None:
-        """Aggiorna il mini player dai segnali del flow DJ."""
-        if self._app_mode.get_mode() != "dj":
-            return
+        """Aggiorna l'header dal flow DJ."""
         self._track_title.setText(title or "Nessun brano")
         self._track_artist.setText(str(artist) if artist else "")
+        if title == "Nessun brano":
+            self._player_widget.reset()
+        else:
+            self._player_widget.set_track_info(title, artist)
 
     def _on_status_message(self, message: str) -> None:
         """Mostra un messaggio breve nella barra di stato DJ."""
         self._status_label.setText(message)
+
+    def _on_track_failed(self, track: dict, reason: str) -> None:
+        """Avvisa l'operatore se un brano DJ non è riproducibile."""
+        title = clean_title(track.get("title", "")) or track.get("title", "brano")
+        QMessageBox.warning(
+            self,
+            "Riproduzione DJ non riuscita",
+            f"Impossibile riprodurre «{title}».\n\n{reason}",
+        )

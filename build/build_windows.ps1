@@ -48,6 +48,8 @@ Copy-Item -Force $ffmpeg (Join-Path $binDir "ffmpeg.exe")
 $ffprobe = (Get-Command ffprobe -ErrorAction SilentlyContinue).Source
 if ($ffprobe) {
     Copy-Item -Force $ffprobe (Join-Path $binDir "ffprobe.exe")
+} else {
+    Write-Warning "ffprobe non trovato nel PATH - yt-dlp potrebbe avere limitazioni sui metadati."
 }
 
 Write-Host "==> Copia librerie VLC..."
@@ -66,7 +68,33 @@ foreach ($dll in @("libvlc.dll", "libvlccore.dll")) {
     }
     Copy-Item -Force $src $vlcDest
 }
+# DLL aggiuntive nella root VLC (runtime MinGW ecc.), se presenti
+Get-ChildItem -Path $VlcPath -Filter "*.dll" -File | ForEach-Object {
+    Copy-Item -Force $_.FullName $vlcDest
+}
 Copy-Item -Recurse -Force (Join-Path $VlcPath "plugins") (Join-Path $vlcDest "plugins")
+
+Write-Host "==> Verifica pacchetto standalone..."
+$required = @(
+    (Join-Path $Dist "KaraokeManager.exe"),
+    (Join-Path $Dist "bin\ffmpeg.exe"),
+    (Join-Path $Dist "vlc\libvlc.dll"),
+    (Join-Path $Dist "vlc\libvlccore.dll"),
+    (Join-Path $Dist "vlc\plugins"),
+    (Join-Path $Dist "_internal\PyQt6\Qt6\plugins\platforms\qwindows.dll"),
+    (Join-Path $Dist "_internal\db\schema.sql"),
+    (Join-Path $Dist "_internal\assets\style_b.qss"),
+    (Join-Path $Dist "_internal\certifi\cacert.pem")
+)
+$missing = @($required | Where-Object { -not (Test-Path $_) })
+if ($missing.Count -gt 0) {
+    throw ("Pacchetto incompleto - file mancanti:`n  " + ($missing -join "`n  "))
+}
+$pluginCount = (Get-ChildItem (Join-Path $Dist "vlc\plugins") -Recurse -File).Count
+if ($pluginCount -lt 50) {
+    throw "Plugin VLC insufficienti ($pluginCount file). Verifica l'installazione VLC 64-bit."
+}
+Write-Host "  OK: exe, VLC ($pluginCount plugin), ffmpeg, Qt, certificati SSL"
 
 Write-Host "==> Cartelle dati utente..."
 foreach ($dir in @("data", "media\downloads", "media\dj\downloads", "logs")) {

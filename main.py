@@ -55,6 +55,17 @@ def _parse_args() -> argparse.Namespace:
         default=0,
         help="Chiude automaticamente dopo N ms (per smoke test)",
     )
+    parser.add_argument(
+        "--migrate-paths",
+        metavar="OLD_ROOT",
+        help="Riscrive local_path nel DB: sostituisce OLD_ROOT con la cartella dati corrente",
+    )
+    parser.add_argument(
+        "--migrate-paths-to",
+        metavar="NEW_ROOT",
+        default=None,
+        help="Con --migrate-paths: destinazione esplicita (es. cartella install sul portatile)",
+    )
     return parser.parse_args()
 
 
@@ -90,6 +101,47 @@ def _install_crash_logger() -> None:
     sys.excepthook = _hook
 
 
+def _migrate_paths(old_root: str, new_root: str | None = None) -> int:
+    """Aggiorna i percorsi assoluti nel DB dopo copia dati su un altro PC."""
+    old = Path(old_root).expanduser().resolve()
+    new = Path(new_root).expanduser().resolve() if new_root else config.BASE_DIR.resolve()
+    if not old.is_dir():
+        print(f"Errore: cartella origine non trovata: {old}", file=sys.stderr)
+        return 1
+    conn = db_core.get_conn()
+    rows = conn.execute(
+        "SELECT id, local_path FROM tracks WHERE local_path IS NOT NULL AND local_path != ''"
+    ).fetchall()
+    updated = 0
+    skipped = 0
+    with conn:
+        conn.execute("PRAGMA wal_checkpoint(FULL)")
+        for row in rows:
+            raw = row["local_path"]
+            if not raw:
+                skipped += 1
+                continue
+            try:
+                rel = Path(raw).resolve().relative_to(old)
+            except (ValueError, OSError):
+                skipped += 1
+                continue
+            new_path = str(new / rel)
+            conn.execute(
+                "UPDATE tracks SET local_path = ? WHERE id = ?",
+                (new_path, row["id"]),
+            )
+            updated += 1
+    db_core.close()
+    print("Migrazione percorsi completata.")
+    print(f"  Origine:    {old}")
+    print(f"  Destino:    {new}")
+    print(f"  Aggiornati: {updated}")
+    if skipped:
+        print(f"  Saltati:    {skipped} (non sotto {old})")
+    return 0
+
+
 def _create_session(conn) -> int:
     """Crea una nuova sessione karaoke e ritorna l'id."""
     with conn:
@@ -116,14 +168,60 @@ def _cleanup() -> None:
     logger.info("Shutdown completato")
 
 
+def _verify_standalone_bundle() -> str | None:
+    """Controlla che l'installazione frozen contenga tutti i componenti necessari."""
+    if not getattr(sys, "frozen", False):
+        return None
+
+    missing: list[str] = []
+    vlc_dir = config.INSTALL_DIR / "vlc"
+    for name in ("libvlc.dll", "libvlccore.dll"):
+        if not (vlc_dir / name).is_file():
+            missing.append(f"  • vlc\\{name}")
+    plugins = vlc_dir / "plugins"
+    if not plugins.is_dir() or not any(plugins.iterdir()):
+        missing.append("  • vlc\\plugins\\ (moduli di decodifica video/audio)")
+    ffmpeg = config.INSTALL_DIR / "bin" / "ffmpeg.exe"
+    if not ffmpeg.is_file():
+        missing.append("  • bin\\ffmpeg.exe (download da YouTube)")
+    qt_platform = (
+        config.BUNDLE_DIR / "PyQt6" / "Qt6" / "plugins" / "platforms" / "qwindows.dll"
+    )
+    if not qt_platform.is_file():
+        missing.append("  • interfaccia grafica Qt (installazione incompleta)")
+
+    if not missing:
+        return None
+
+    install = config.INSTALL_DIR
+    return (
+        "Installazione incompleta o danneggiata.\n\n"
+        "Mancano questi file nella cartella del programma:\n"
+        + "\n".join(missing)
+        + f"\n\nCartella installazione:\n  {install}\n\n"
+        "Reinstalla con KaraokeManager-Setup.exe (non copiare solo il file .exe).\n"
+        "Se il problema persiste, disinstalla e reinstalla da zero."
+    )
+
+
 def main() -> int:
     """Avvia l'applicazione KaraokeManager."""
     args = _parse_args()
     if args.db:
         config.DB_PATH = Path(args.db)
+    if args.migrate_paths:
+        _setup_logging()
+        return _migrate_paths(args.migrate_paths, args.migrate_paths_to)
     _install_crash_logger()
     _setup_logging()
-    logger.info("Avvio %s (dry_run=%s)", config.APP_NAME, args.dry_run)
+    logger.info("Avvio %s v%s (dry_run=%s)", config.APP_NAME, config.APP_VERSION, args.dry_run)
+
+    bundle_error = _verify_standalone_bundle()
+    if bundle_error:
+        logger.error("Bundle incompleto:\n%s", bundle_error)
+        app = QApplication(sys.argv)
+        QMessageBox.critical(None, "KaraokeManager — installazione incompleta", bundle_error)
+        return 1
 
     app = QApplication(sys.argv)
 
@@ -143,9 +241,10 @@ def main() -> int:
     display_manager = DisplayManager()
     app_mode_service = AppModeService()
     dj_runtime_service = DjRuntimeService()
-    dj_playback_flow = DjPlaybackFlow(dj_runtime_service, app_mode_service)
+    dj_playback_flow = DjPlaybackFlow(dj_runtime_service)
 
     player_service: object | None = None
+    dj_player_service: object | None = None
     search_service: SearchService | None = None
     dj_search_service: SearchService | None = None
     download_service: object | None = None
@@ -177,6 +276,7 @@ def main() -> int:
     if not args.dry_run:
         from engines.vlc_engine import VlcEngine
         from engines.ytdlp_engine import YtdlpEngine
+        from services.dj_player_service import DjPlayerService
         from services.download_service import DownloadService
         from services.filler_service import FillerService
         from services.player_service import PlayerService
@@ -184,6 +284,7 @@ def main() -> int:
         try:
             vlc_engine = VlcEngine()
             vlc_engine_secondary = vlc_engine.clone()
+            vlc_dj_engine = VlcEngine()
             ytdlp_engine = YtdlpEngine()
             search_engine = SearchEngine(conn)
             search_engine_dj = SearchEngine(conn, track_type="dj")
@@ -199,11 +300,12 @@ def main() -> int:
                 ytdlp_engine,
                 vlc_engine_secondary,
             )
+            dj_player_service = DjPlayerService(vlc_dj_engine, ytdlp_engine)
             filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
             filler_service = FillerService(filler_engine)
             main_window.wire_services(player_service, search_service, download_service)
             main_window.set_filler_service(filler_service)
-            dj_playback_flow.set_player(player_service)
+            dj_playback_flow.set_player(dj_player_service)
             dj_playback_flow.set_filler(filler_service)
             external_coordinator.set_player(player_service)
         except Exception as exc:
@@ -236,15 +338,12 @@ def main() -> int:
         playlist_service,
         dj_search_service,
         download_service,
-        player_service=player_service,
+        player_service=dj_player_service,
     )
-    main_window.wire_mode_services(dj_playback_flow)
     main_window.dj_console_toggle_requested.connect(
         lambda: _toggle_dj_console(dj_console_window)
     )
     dj_console_window.dj_filler_track_requested.connect(main_window.apply_dj_filler_track)
-    if player_service is not None:
-        dj_console_window.set_player(player_service)
 
     main_window.show()
     app.processEvents()
@@ -252,6 +351,9 @@ def main() -> int:
     if not args.dry_run and player_service is not None:
         vlc_engine.set_output_widget(main_window.video_output_widget())
         main_window.set_vlc_output_rebind(vlc_engine.set_output_widget)
+    if not args.dry_run and dj_player_service is not None:
+        dj_player_service.bind_output_widget(dj_console_window.video_output_widget())
+        dj_console_window.set_vlc_output_rebind(vlc_dj_engine.set_output_widget)
 
     queue_service.queue_updated.connect(main_window.queue_widget().set_queue)
     external_coordinator.connect_signals(app, main_window.external_toggle_requested)

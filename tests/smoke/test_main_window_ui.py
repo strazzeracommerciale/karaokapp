@@ -88,11 +88,24 @@ def test_top_bar_and_splitter_layout() -> None:
     left_sizes = window._left_splitter.sizes()
 
     assert main_y < 120, f"top bar troppo alta: main_splitter y={main_y}"
-    assert filler_h <= 48, f"FillerSourceWidget troppo alto: {filler_h}px"
+    assert filler_h <= 72, f"FillerSourceWidget troppo alto: {filler_h}px"
     assert video_h >= 250, f"anteprima troppo piccola: {video_h}px"
     assert left_sizes[0] > left_sizes[1] * 0.5, f"splitter sbilanciato: {left_sizes}"
     assert window._player_widget._set_start_btn.text() == "Inizia da qui"
     assert window._player_widget._set_start_btn.isVisible()
+    window.close()
+
+
+def test_filler_long_source_label_stays_on_second_row() -> None:
+    """Un nome sottofondo lungo non deve espandere la riga dei controlli."""
+    window = _make_window()
+    window._filler_source.set_source_label(
+        "Brano con titolo molto lungo che prima spingeva fuori shuffle e volume — artista.mp4"
+    )
+    _app.processEvents()
+    label_y = window._filler_source._source_label.y()
+    shuffle_y = window._filler_source._shuffle_check.y()
+    assert label_y > shuffle_y, "l'etichetta sorgente deve stare sotto i controlli"
     window.close()
 
 

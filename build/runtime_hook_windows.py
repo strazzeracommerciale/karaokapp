@@ -6,7 +6,12 @@ from pathlib import Path
 
 if sys.platform == "win32" and getattr(sys, "frozen", False):
     vlc_dir = Path(sys.executable).resolve().parent / "vlc"
-    if vlc_dir.is_dir():
+    libvlc = vlc_dir / "libvlc.dll"
+    if libvlc.is_file():
+        os.environ["PYTHON_VLC_LIB_PATH"] = str(libvlc)
+        os.environ["VLC_PLUGIN_PATH"] = str(vlc_dir / "plugins")
+        os.add_dll_directory(str(vlc_dir))
+    elif vlc_dir.is_dir():
         os.add_dll_directory(str(vlc_dir))
         os.environ["VLC_PLUGIN_PATH"] = str(vlc_dir / "plugins")
 

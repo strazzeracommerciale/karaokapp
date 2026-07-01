@@ -30,7 +30,6 @@ from services.karaoke_playback_flow import KaraokePlaybackFlow
 from services.queue_service import QueueService
 
 if TYPE_CHECKING:
-    from services.dj_playback_flow import DjPlaybackFlow
     from services.download_service import DownloadService
     from services.filler_service import FillerService
     from services.library_service import LibraryService
@@ -44,54 +43,10 @@ from ui.player_widget import PlayerWidget
 from ui.queue_widget import QueueWidget
 from ui.search_widget import SearchWidget
 from ui.theme_service import ThemeService
+from ui.video_output_widget import VideoOutputWidget
 from utils.text import clean_title
 
 logger = logging.getLogger(__name__)
-
-
-class _VideoOutputWidget(QWidget):
-    """Widget nero per embed nativo dell'output video VLC."""
-
-    _VLC_RESIZE_DEBOUNCE_MS = 150
-
-    def __init__(self) -> None:
-        """Inizializza l'area video."""
-        super().__init__()
-        self.setMinimumHeight(200)
-        self.setStyleSheet("background-color: #000000;")
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self._vlc_resize_callback: Callable[[QWidget], None] | None = None
-        self._last_vlc_size = (0, 0)
-        self._vlc_resize_timer = QTimer(self)
-        self._vlc_resize_timer.setSingleShot(True)
-        self._vlc_resize_timer.setInterval(self._VLC_RESIZE_DEBOUNCE_MS)
-        self._vlc_resize_timer.timeout.connect(self._emit_vlc_resize)
-
-    def set_vlc_resize_callback(
-        self, callback: Callable[[QWidget], None] | None
-    ) -> None:
-        """Registra callback per riallineare l'HWND VLC dopo un resize del widget."""
-        self._vlc_resize_callback = callback
-        self._last_vlc_size = (0, 0)
-
-    def resizeEvent(self, event) -> None:
-        """Pianifica il riaggancio VLC (debounced) per evitare tempeste di set_hwnd."""
-        super().resizeEvent(event)
-        if self._vlc_resize_callback is not None and self.width() > 0 and self.height() > 0:
-            self._vlc_resize_timer.start()
-
-    def _emit_vlc_resize(self) -> None:
-        """Riaggancia VLC solo se le dimensioni sono cambiate in modo significativo."""
-        if self._vlc_resize_callback is None:
-            return
-        size = (self.width(), self.height())
-        if size[0] <= 0 or size[1] <= 0:
-            return
-        last_w, last_h = self._last_vlc_size
-        if abs(size[0] - last_w) < 4 and abs(size[1] - last_h) < 4:
-            return
-        self._last_vlc_size = size
-        self._vlc_resize_callback(self)
 
 
 class MainWindow(QMainWindow):
@@ -126,7 +81,6 @@ class MainWindow(QMainWindow):
         self._pending_filler_youtube_id: str | None = None
         self._dry_run = dry_run
         self._karaoke_flow: KaraokePlaybackFlow | None = None
-        self._dj_flow: "DjPlaybackFlow | None" = None
         if queue_service is not None:
             self._karaoke_flow = KaraokePlaybackFlow(
                 queue_service,
@@ -171,17 +125,6 @@ class MainWindow(QMainWindow):
             self._karaoke_flow.set_search(search_service)
         self._connect_service_signals()
 
-    def wire_mode_services(self, dj_playback_flow: "DjPlaybackFlow") -> None:
-        """Collega il flow playback DJ (guard interno su AppModeService)."""
-        self._dj_flow = dj_playback_flow
-        self.set_dj_flow(dj_playback_flow)
-
-    def set_dj_flow(self, dj_playback_flow: "DjPlaybackFlow") -> None:
-        """Collega il flow DJ al karaoke per l'ownership condivisa del player."""
-        if self._karaoke_flow is not None:
-            self._karaoke_flow.set_dj_flow(dj_playback_flow)
-        self._connect_service_signals()
-
     def set_filler_service(self, filler_service: "FillerService | None") -> None:
         """Collega il service di sottofondo e sincronizza i controlli."""
         self._filler = filler_service
@@ -221,7 +164,7 @@ class MainWindow(QMainWindow):
         self._build_top_bar(QHBoxLayout(self._top_bar))
         root.addWidget(self._top_bar, stretch=0)
 
-        self._video_output = _VideoOutputWidget()
+        self._video_output = VideoOutputWidget()
 
         controls_panel = QWidget()
         controls = QVBoxLayout(controls_panel)
@@ -418,17 +361,6 @@ class MainWindow(QMainWindow):
                 self._player.track_failed.connect(flow.on_track_failed)
                 self._player.position_updated.connect(self._player_widget.update_position)
                 self._player.set_volume(self._player_widget.volume())
-            if self._dj_flow is not None:
-                dj_flow = self._dj_flow
-                try:
-                    self._player.track_started.disconnect(dj_flow.on_track_started)
-                    self._player.track_ended.disconnect(dj_flow.on_track_ended)
-                    self._player.track_failed.disconnect(dj_flow.on_track_failed)
-                except TypeError:
-                    pass
-                self._player.track_started.connect(dj_flow.on_track_started)
-                self._player.track_ended.connect(dj_flow.on_track_ended)
-                self._player.track_failed.connect(dj_flow.on_track_failed)
         if self._download is not None:
             try:
                 self._download.download_progress.disconnect(self._on_download_progress)
@@ -669,37 +601,19 @@ class MainWindow(QMainWindow):
             self._theme_service.set_theme(config.UI_THEME_DARK)  # type: ignore[arg-type]
 
     def _on_play_pause(self) -> None:
-        """Delega play/pausa a entrambi i flow (guard interno su modalità)."""
-        if self._dj_flow is not None:
-            self._dj_flow.play_pause()
+        """Delega play/pausa al flow karaoke."""
         if self._karaoke_flow is not None:
             self._karaoke_flow.play_pause()
 
     def _on_stop(self) -> None:
-        """Delega stop a entrambi i flow (guard interno su modalità)."""
-        if self._dj_flow is not None:
-            self._dj_flow.stop()
+        """Delega stop al flow karaoke."""
         if self._karaoke_flow is not None:
             self._karaoke_flow.stop()
 
     def _on_skip(self) -> None:
-        """Delega skip a entrambi i flow (guard interno su modalità)."""
-        if self._dj_flow is not None:
-            self._dj_flow.skip()
-        if self._karaoke_flow is None:
-            return
-        if (
-            self._app_mode.get_mode() == "karaoke"
-            and self._dj_flow is not None
-            and self._dj_flow.is_playback_active()
-        ):
-            QMessageBox.warning(
-                self,
-                "Skip",
-                "Il player è occupato dalla consolle DJ.",
-            )
-            return
-        self._karaoke_flow.skip()
+        """Delega skip al flow karaoke."""
+        if self._karaoke_flow is not None:
+            self._karaoke_flow.skip()
 
     def _on_seek(self, seconds: float) -> None:
         """Seek nel brano corrente."""

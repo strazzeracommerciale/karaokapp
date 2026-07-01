@@ -7,7 +7,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtCore import QObject
 
-from services.app_mode_service import AppModeService
 from services.dj_playback_flow import DjPlaybackFlow
 from services.dj_runtime_service import DjRuntimeService
 
@@ -89,25 +88,21 @@ class _FlowListener(QObject):
 
 def _make_flow(
     track_count: int = 2,
-    *,
-    initial_mode: str = "dj",
-) -> tuple[DjPlaybackFlow, DjRuntimeService, AppModeService, _MockPlayer, _MockFiller]:
+) -> tuple[DjPlaybackFlow, DjRuntimeService, _MockPlayer, _MockFiller]:
     """Costruisce flow DJ con dipendenze mock."""
     runtime = DjRuntimeService()
     runtime.load_tracks(_make_tracks(track_count))
-    app_mode = AppModeService(initial_mode=initial_mode)
     player = _MockPlayer()
     filler = _MockFiller()
-    flow = DjPlaybackFlow(runtime, app_mode, player, filler)
-    return flow, runtime, app_mode, player, filler
+    flow = DjPlaybackFlow(runtime, player, filler)
+    return flow, runtime, player, filler
 
 
 def test_play_empty_runtime_emits_status() -> None:
     """Play con runtime vuoto emette messaggio breve, senza toccare il player."""
     runtime = DjRuntimeService()
-    app_mode = AppModeService(initial_mode="dj")
     player = _MockPlayer()
-    flow = DjPlaybackFlow(runtime, app_mode, player)
+    flow = DjPlaybackFlow(runtime, player)
     listener = _FlowListener()
     flow.status_message.connect(listener.on_status)
 
@@ -118,8 +113,8 @@ def test_play_empty_runtime_emits_status() -> None:
 
 
 def test_play_starts_first_track() -> None:
-    """Play avvia il primo brano del runtime e imposta l'ownership DJ."""
-    flow, runtime, _app_mode, player, filler = _make_flow(2)
+    """Play avvia il primo brano del runtime."""
+    flow, runtime, player, filler = _make_flow(2)
 
     flow.play_pause()
 
@@ -132,7 +127,7 @@ def test_play_starts_first_track() -> None:
 
 def test_stop_preserves_runtime_index() -> None:
     """Stop ferma il player senza resettare l'indice runtime."""
-    flow, runtime, _app_mode, player, filler = _make_flow(2)
+    flow, runtime, player, filler = _make_flow(2)
 
     flow.play_pause()
     flow.stop()
@@ -145,7 +140,7 @@ def test_stop_preserves_runtime_index() -> None:
 
 def test_skip_advances_to_next_track() -> None:
     """Skip salta al brano successivo."""
-    flow, runtime, _app_mode, player, _filler = _make_flow(2)
+    flow, runtime, player, _filler = _make_flow(2)
 
     flow.play_pause()
     flow.skip()
@@ -157,7 +152,7 @@ def test_skip_advances_to_next_track() -> None:
 
 def test_on_track_ended_auto_advance_without_filler() -> None:
     """Fine brano con successivo in coda: auto-advance senza avviare il filler."""
-    flow, _runtime, _app_mode, player, filler = _make_flow(2)
+    flow, _runtime, player, filler = _make_flow(2)
 
     flow.play_pause()
     flow.on_track_ended()
@@ -170,7 +165,7 @@ def test_on_track_ended_auto_advance_without_filler() -> None:
 
 def test_on_track_ended_exhausted_starts_filler() -> None:
     """Runtime esaurito (loop off): termina sessione e avvia il filler."""
-    flow, _runtime, _app_mode, player, filler = _make_flow(1)
+    flow, _runtime, player, filler = _make_flow(1)
     listener = _FlowListener()
     flow.track_info_updated.connect(listener.on_track_info)
 
@@ -185,7 +180,7 @@ def test_on_track_ended_exhausted_starts_filler() -> None:
 
 def test_on_track_failed_auto_skips() -> None:
     """Brano fallito: skip automatico al successivo."""
-    flow, runtime, _app_mode, player, _filler = _make_flow(2)
+    flow, runtime, player, _filler = _make_flow(2)
 
     flow.play_pause()
     failed = player.played[0]
@@ -196,28 +191,31 @@ def test_on_track_failed_auto_skips() -> None:
     assert runtime.get_current_index() == 1
 
 
-def test_on_track_ended_after_mode_switch_still_advances() -> None:
-    """Auto-advance DJ funziona anche dopo switch a karaoke (ownership, non mode)."""
-    flow, _runtime, app_mode, player, filler = _make_flow(2)
+def test_preview_ends_without_runtime_advance() -> None:
+    """Fine anteprima non avanza il runtime."""
+    flow, runtime, player, filler = _make_flow(2)
+    preview = {"id": 99, "title": "Anteprima", "source": "youtube"}
 
-    flow.play_pause()
-    app_mode.set_mode("karaoke")
+    flow.preview_track(preview)
     flow.on_track_ended()
 
-    assert len(player.played) == 2
+    assert player.played == [preview]
+    assert runtime.get_current_index() == -1
+    assert flow.is_playback_active() is False
     assert filler.start_count == 0
-    assert flow.is_playback_active() is True
 
 
-def test_play_pause_noop_in_karaoke_mode() -> None:
-    """Comandi utente no-op fuori modalità DJ."""
-    flow, _runtime, _app_mode, player, _filler = _make_flow(2, initial_mode="karaoke")
+def test_preview_starts_without_mode_guard() -> None:
+    """Anteprima avvia il player indipendentemente dalla modalità app."""
+    flow, runtime, player, _filler = _make_flow(1)
 
-    flow.play_pause()
-    flow.skip()
+    flow.preview_track({"id": 99, "title": "Preview"})
+    assert len(player.played) == 1
     flow.stop()
+    flow.play_pause()
 
-    assert player.played == []
+    assert len(player.played) == 2
+    assert runtime.get_current_index() == 0
 
 
 if __name__ == "__main__":
@@ -228,6 +226,6 @@ if __name__ == "__main__":
     test_on_track_ended_auto_advance_without_filler()
     test_on_track_ended_exhausted_starts_filler()
     test_on_track_failed_auto_skips()
-    test_on_track_ended_after_mode_switch_still_advances()
-    test_play_pause_noop_in_karaoke_mode()
+    test_preview_ends_without_runtime_advance()
+    test_preview_starts_without_mode_guard()
     print("OK")

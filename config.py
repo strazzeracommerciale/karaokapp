@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-APP_VERSION: str = "1.0.2"
+APP_VERSION: str = "1.0.5"
 
 
 def _install_dir() -> Path:
@@ -82,7 +82,12 @@ else:
 
 if _sys.platform == "win32":
     _bundled_vlc = INSTALL_DIR / "vlc"
-    if _bundled_vlc.is_dir():
+    _libvlc = _bundled_vlc / "libvlc.dll"
+    if _libvlc.is_file():
+        _os.environ["PYTHON_VLC_LIB_PATH"] = str(_libvlc)
+        _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
+        _os.add_dll_directory(str(_bundled_vlc))
+    elif _bundled_vlc.is_dir():
         _os.add_dll_directory(str(_bundled_vlc))
         _os.environ["VLC_PLUGIN_PATH"] = str(_bundled_vlc / "plugins")
 
