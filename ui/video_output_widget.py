@@ -1,5 +1,6 @@
 """Widget nero per embed nativo dell'output video VLC."""
 
+import sys
 from collections.abc import Callable
 
 from PyQt6.QtCore import Qt, QTimer
@@ -14,6 +15,9 @@ class VideoOutputWidget(QWidget):
     def __init__(self, *, min_height: int = 200) -> None:
         """Inizializza l'area video."""
         super().__init__()
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+            self.setAttribute(Qt.WidgetAttribute.WA_DontCreateNativeAncestors, True)
         self.setMinimumHeight(min_height)
         self.setStyleSheet("background-color: #000000;")
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)

@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from utils.text import format_track_display
+
 logger = logging.getLogger(__name__)
 
 _TRACK_DATA_ROLE = Qt.ItemDataRole.UserRole
@@ -136,8 +138,7 @@ class DjLibraryWidget(QWidget):
             count = track.get("play_count") or 0
             meta = f"   ▶ {count}" if count else ""
             artist = track.get("artist") or ""
-            artist_part = f" — {artist}" if artist else ""
-            label = f"{track.get('title', '')}{artist_part}{meta}"
+            label = format_track_display(track.get("title", ""), artist, suffix=meta)
             item = QListWidgetItem(label)
             item.setData(_TRACK_DATA_ROLE, track)
             self._list.addItem(item)

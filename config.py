@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-APP_VERSION: str = "1.0.5"
+APP_VERSION: str = "2.0"
 
 
 def _install_dir() -> Path:
@@ -55,6 +55,8 @@ YT_SEARCH_LIMIT: int = 10
 YT_SEARCH_PREFIX: str = "karaoke"
 DJ_YT_SEARCH_PREFIX: str = ""
 FUZZY_THRESHOLD: int = 65
+ARTIST_MATCH_THRESHOLD: int = 88
+ARTIST_REGISTRY_SEED_PATH: Path = BUNDLE_DIR / "data" / "seeds" / "known_artists.txt"
 SEARCH_DEBOUNCE_MS: int = 400
 LOCAL_SEARCH_MIN_RESULTS: int = 3
 
@@ -62,6 +64,22 @@ LOCAL_SEARCH_MIN_RESULTS: int = 3
 DJ_CONSOLE_DEFAULT_WIDTH: int = 900
 DJ_CONSOLE_DEFAULT_HEIGHT: int = 700
 DJ_CONSOLE_SETTINGS_GEOMETRY_KEY: str = "dj_console/geometry"
+
+# Finestra Preparazione (libreria, scalette, strumenti batch)
+PREP_WINDOW_DEFAULT_WIDTH: int = 960
+PREP_WINDOW_DEFAULT_HEIGHT: int = 720
+PREP_WINDOW_SETTINGS_GEOMETRY_KEY: str = "prep_window/geometry"
+PREP_PLAYBACK_DEFAULT_WIDTH: int = 720
+PREP_PLAYBACK_DEFAULT_HEIGHT: int = 520
+PREP_PLAYBACK_SETTINGS_GEOMETRY_KEY: str = "prep_playback/geometry"
+
+# Sfoglia libreria (finestra live serata)
+LIBRARY_BROWSE_DEFAULT_WIDTH: int = 720
+LIBRARY_BROWSE_DEFAULT_HEIGHT: int = 640
+LIBRARY_BROWSE_SETTINGS_GEOMETRY_KEY: str = "library_browse/geometry"
+
+# Uscita audio VLC (Windows mmdevice): ID dispositivo o "" = predefinito di sistema.
+AUDIO_OUTPUT_DEVICE_SETTINGS_KEY: str = "audio/output_device_id"
 
 UI_THEME_SETTINGS_KEY: str = "ui/theme"
 UI_THEME_LIGHT: str = "light"
@@ -77,8 +95,12 @@ if _sys.platform == "win32":
     # Il filler usa un output audio separato (DirectSound) così il suo volume
     # non muove la sessione WASAPI del karaoke nel mixer di Windows.
     FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video", "--aout=directsound")
+    # Ascolto in Preparazione: output audio predefinito (WASAPI/mmdevice), come il player
+    # principale. DirectSound su Windows 11 spesso fallisce in silenzio (video sì, audio no).
+    PREP_VLC_ARGS: tuple[str, ...] = ()
 else:
     FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video",)
+    PREP_VLC_ARGS: tuple[str, ...] = ()
 
 if _sys.platform == "win32":
     _bundled_vlc = INSTALL_DIR / "vlc"

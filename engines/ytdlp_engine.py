@@ -44,12 +44,14 @@ class YtdlpEngine:
         youtube_id: str,
         output_path: str,
         progress_hook: Callable[[dict], None] | None = None,
+        basename: str | None = None,
     ) -> str:
         """Scarica il video in output_path e invoca progress_hook."""
         url = f"https://www.youtube.com/watch?v={youtube_id}"
         out_dir = Path(output_path)
         out_dir.mkdir(parents=True, exist_ok=True)
-        target_path = out_dir / f"{youtube_id}.mp4"
+        stem = basename or youtube_id
+        target_path = out_dir / f"{stem}.mp4"
         # Forza H.264 (avc1): l'AV1/VP9 non ha decodifica hardware su GPU datate e,
         # con due output video, manda in errore il converter VLC (schermo nero, niente
         # audio). avc1 fino a 720p è leggero e si decodifica in hardware.
@@ -79,6 +81,9 @@ class YtdlpEngine:
             info = ydl.extract_info(url, download=False)
         return {
             "title": info.get("title", ""),
+            "artist": info.get("artist") or info.get("creator") or "",
+            "track": info.get("track") or "",
+            "creator": info.get("creator") or info.get("uploader", ""),
             "uploader": info.get("uploader", ""),
             "duration": info.get("duration"),
             "thumbnail_url": info.get("thumbnail", ""),

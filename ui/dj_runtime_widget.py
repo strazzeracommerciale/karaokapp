@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from utils.text import format_track_display
+
 if TYPE_CHECKING:
     from services.dj_runtime_service import DjRuntimeService
 
@@ -89,7 +91,7 @@ class DjRuntimeWidget(QWidget):
         for track in self._runtime.get_runtime_queue():
             title = track.get("title", "Senza titolo")
             artist = track.get("artist", "")
-            label = f"{title} — {artist}" if artist else title
+            label = format_track_display(title, artist)
             item = QListWidgetItem(label)
             item.setData(_TRACK_DATA_ROLE, track)
             self._list.addItem(item)

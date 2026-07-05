@@ -30,15 +30,21 @@ _SORT_CLAUSES = {
     "recent": "last_played IS NULL, last_played DESC, title COLLATE NOCASE",
     "played": "play_count DESC, title COLLATE NOCASE",
     "title": "title COLLATE NOCASE",
+    "artist": "artist IS NULL, artist COLLATE NOCASE, title COLLATE NOCASE",
 }
 
 
 class LibraryService:
     """Espone i brani già scaricati e aggiorna i contatori d'uso."""
 
-    def __init__(self, db_conn: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        db_conn: sqlite3.Connection,
+        artist_registry: object | None = None,
+    ) -> None:
         """Inizializza con la connessione DB condivisa."""
         self._conn = db_conn
+        self._artist_registry = artist_registry
 
     def list_tracks(self, sort: str = "recent", track_type: TrackType = "karaoke") -> list[dict]:
         """Restituisce i brani con file locale presente, ordinati come richiesto.
@@ -50,7 +56,8 @@ class LibraryService:
         order = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["recent"])
         rows = self._conn.execute(
             "SELECT id, title, artist, local_path, source, duration_sec, "
-            "play_count, last_played, track_type FROM tracks "
+            "play_count, last_played, track_type, metadata_confirmed "
+            "FROM tracks "
             "WHERE local_path IS NOT NULL AND local_path != '' AND track_type = ? "
             f"ORDER BY {order}",
             (track_type,),
@@ -71,6 +78,7 @@ class LibraryService:
                     "play_count": row["play_count"] or 0,
                     "last_played": row["last_played"],
                     "track_type": row["track_type"],
+                    "metadata_confirmed": bool(row["metadata_confirmed"]),
                 }
             )
         logger.debug(
@@ -173,6 +181,50 @@ class LibraryService:
                     logger.warning("Impossibile eliminare %s: %s", path, exc)
         logger.info("Brano eliminato dalla libreria: track_id=%s", track_id)
         return True
+
+    def update_track_metadata(
+        self,
+        track_id: int,
+        title: str,
+        artist: str | None,
+    ) -> bool:
+        """Aggiorna titolo e artista di un brano in catalogo."""
+        cleaned_title = (title or "").strip()
+        if not cleaned_title:
+            logger.warning("update_track_metadata: titolo vuoto per track_id=%s", track_id)
+            return False
+        row = self._conn.execute("SELECT id FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        if row is None:
+            return False
+        with self._conn:
+            self._conn.execute(
+                "UPDATE tracks SET title = ?, artist = ?, "
+                "metadata_confirmed = 1, metadata_confirmed_at = CURRENT_TIMESTAMP "
+                "WHERE id = ?",
+                (cleaned_title, artist, track_id),
+            )
+        if artist and self._artist_registry is not None and hasattr(
+            self._artist_registry, "register"
+        ):
+            self._artist_registry.register(artist, source="manual")
+        logger.info("Metadati aggiornati: track_id=%s titolo=%r artista=%r", track_id, cleaned_title, artist)
+        return True
+
+    def confirm_metadata(self, track_ids: list[int]) -> int:
+        """Segna i metadati dei brani indicati come confermati dall'operatore."""
+        if not track_ids:
+            return 0
+        placeholders = ",".join("?" * len(track_ids))
+        with self._conn:
+            cursor = self._conn.execute(
+                f"UPDATE tracks SET metadata_confirmed = 1, "
+                f"metadata_confirmed_at = CURRENT_TIMESTAMP "
+                f"WHERE id IN ({placeholders})",
+                track_ids,
+            )
+        count = cursor.rowcount
+        logger.info("Metadati confermati per %d brani", count)
+        return count
 
     def get_start_offset(self, track_id: int) -> float:
         """Restituisce il punto di inizio memorizzato per un brano (0 se assente)."""

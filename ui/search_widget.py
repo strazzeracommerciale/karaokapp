@@ -10,9 +10,12 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+
+from utils.text import format_track_display
 
 logger = logging.getLogger(__name__)
 
@@ -29,49 +32,55 @@ def _is_youtube_stream_only(track: dict) -> bool:
 
 
 class SearchWidget(QWidget):
-    """Lista dei risultati di ricerca con anteprima e accodamento."""
+    """Lista risultati ricerca unificata (locali + YouTube) con accodamento."""
 
     track_selected = pyqtSignal(dict)
-    preview_requested = pyqtSignal(dict)
     save_to_library_requested = pyqtSignal(dict)
     load_more_requested = pyqtSignal()
     set_as_filler_requested = pyqtSignal(dict)
+    add_to_playlist_requested = pyqtSignal(dict)
 
-    def __init__(self) -> None:
+    def __init__(self, *, prep_mode: bool = False) -> None:
         """Costruisce la lista risultati."""
         super().__init__()
+        self._prep_mode = prep_mode
         self._build_ui()
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def _build_ui(self) -> None:
         """Assembla layout e connessioni."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self._results_list = QListWidget()
+        self._results_list.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self._results_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._results_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._results_list.customContextMenuRequested.connect(self._on_context_menu)
-        layout.addWidget(self._results_list)
+        layout.addWidget(self._results_list, stretch=1)
         self._load_more_btn = QPushButton("Mostra altri risultati YouTube")
         self._load_more_btn.setObjectName("secondaryButton")
         self._load_more_btn.clicked.connect(self.load_more_requested.emit)
         self._load_more_btn.setVisible(False)
         layout.addWidget(self._load_more_btn)
-        hint = QLabel("Doppio click su [YT]: anteprima · tasto destro: accoda o salva")
+        hint = QLabel(
+            "Doppio click: riproduci · tasto destro: salva in libreria o scaletta"
+            if self._prep_mode
+            else "Doppio click: accoda · tasto destro: salva, scaletta o sottofondo"
+        )
         hint.setObjectName("mutedLabel")
         layout.addWidget(hint)
 
     def _on_item_double_clicked(self, item) -> None:
-        """YouTube non scaricato: anteprima; altrimenti accoda."""
+        """Accoda il brano selezionato."""
         track = item.data(256)
-        if not track:
-            return
-        if _is_youtube_stream_only(track):
-            self.preview_requested.emit(track)
-        else:
+        if track:
             self.track_selected.emit(track)
 
     def _on_context_menu(self, pos) -> None:
-        """Menu contestuale: anteprima, accoda, salva e sottofondo."""
+        """Menu contestuale: accoda, salva, scaletta e sottofondo."""
         item = self._results_list.itemAt(pos)
         if item is None:
             return
@@ -79,20 +88,27 @@ class SearchWidget(QWidget):
         if not track:
             return
         menu = QMenu(self)
-        preview_action = menu.addAction("Anteprima")
-        queue_action = menu.addAction("Accoda in coda")
+        if self._prep_mode:
+            play_action = menu.addAction("Riproduci")
+        else:
+            play_action = menu.addAction("Accoda in coda")
         save_action = None
         if _is_youtube_stream_only(track):
             save_action = menu.addAction("Salva in libreria")
-        filler_action = menu.addAction("Imposta come sottofondo")
+        playlist_action = None
+        if track.get("id"):
+            playlist_action = menu.addAction("Aggiungi a playlist…")
+        filler_action = None
+        if not self._prep_mode:
+            filler_action = menu.addAction("Imposta come sottofondo")
         chosen = menu.exec(self._results_list.mapToGlobal(pos))
-        if chosen is preview_action:
-            self.preview_requested.emit(track)
-        elif chosen is queue_action:
+        if chosen is play_action:
             self.track_selected.emit(track)
         elif save_action is not None and chosen is save_action:
             self.save_to_library_requested.emit(track)
-        elif chosen is filler_action:
+        elif playlist_action is not None and chosen is playlist_action:
+            self.add_to_playlist_requested.emit(track)
+        elif filler_action is not None and chosen is filler_action:
             self.set_as_filler_requested.emit(track)
 
     def set_results(self, results: list[dict], can_load_more: bool = False) -> None:
@@ -101,7 +117,7 @@ class SearchWidget(QWidget):
         for track in results:
             origin = track.get("origin", track.get("source", "local"))
             badge = {"local": "[LOCAL]", "youtube": "[YT]"}.get(origin, "[?]")
-            label = f"{badge} {track.get('title', '')} — {track.get('artist', '')}"
+            label = f"{badge} {format_track_display(track.get('title', ''), track.get('artist'))}"
             item = QListWidgetItem(label)
             item.setData(256, track)
             self._results_list.addItem(item)
@@ -119,4 +135,6 @@ class SearchWidget(QWidget):
             item = self._results_list.item(index)
             track = item.data(256)
             if track and track.get("youtube_id") == youtube_id:
-                item.setText(f"[DL] {track.get('title', '')} — {track.get('artist', '')}")
+                item.setText(
+                    f"[DL] {format_track_display(track.get('title', ''), track.get('artist'))}"
+                )

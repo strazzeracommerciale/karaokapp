@@ -9,6 +9,8 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import config
 from engines.ytdlp_engine import YtdlpEngine
+from utils.text import build_download_basename
+from utils.track_metadata import resolve_artist_title
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +24,17 @@ class _DownloadWorker(QThread):
     complete = pyqtSignal(str, dict)
     error = pyqtSignal(str, str)
 
-    def __init__(self, ytdlp_engine: YtdlpEngine, db_conn: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        ytdlp_engine: YtdlpEngine,
+        db_conn: sqlite3.Connection,
+        artist_registry: object | None = None,
+    ) -> None:
         """Inizializza il worker con engine e connessione DB."""
         super().__init__()
         self._ytdlp = ytdlp_engine
         self._conn = db_conn
+        self._artist_registry = artist_registry
         self._queue: deque[dict] = deque()
         self._active = False
 
@@ -58,17 +66,27 @@ class _DownloadWorker(QThread):
                         percent = int(downloaded * 100 / total) if total > 0 else 0
                         self.progress.emit(youtube_id, percent)
 
-                file_path = self._ytdlp.download(
-                    youtube_id, str(output_path), progress_hook=hook
-                )
                 metadata = self._ytdlp.extract_metadata(youtube_id)
+                raw_title = metadata.get("title", title)
+                artist, song_title = resolve_artist_title(
+                    raw_title, metadata, registry=self._artist_registry
+                )
+                basename = build_download_basename(artist, song_title, youtube_id)
+                file_path = self._ytdlp.download(
+                    youtube_id,
+                    str(output_path),
+                    progress_hook=hook,
+                    basename=basename,
+                )
                 track_dict = self._save_track(
                     youtube_id,
-                    title,
+                    raw_title,
                     metadata,
                     file_path,
                     trigger,
                     track_type,
+                    artist=artist or None,
+                    song_title=song_title or raw_title,
                 )
                 self.complete.emit(youtube_id, track_dict)
             except Exception as exc:
@@ -84,8 +102,12 @@ class _DownloadWorker(QThread):
         file_path: str,
         trigger: str,
         track_type: TrackType,
+        artist: str | None = None,
+        song_title: str | None = None,
     ) -> dict:
         """Salva track e log download nel database."""
+        db_title = song_title or metadata.get("title", title)
+        db_artist = artist or metadata.get("uploader")
         with self._conn:
             existing = self._conn.execute(
                 "SELECT id, track_type FROM tracks WHERE youtube_id = ?",
@@ -99,8 +121,8 @@ class _DownloadWorker(QThread):
                     )
                 track_id = existing["id"]
                 self._conn.execute(
-                    "UPDATE tracks SET local_path = ?, title = ? WHERE id = ?",
-                    (file_path, metadata.get("title", title), track_id),
+                    "UPDATE tracks SET local_path = ?, title = ?, artist = ? WHERE id = ?",
+                    (file_path, db_title, db_artist, track_id),
                 )
             else:
                 cursor = self._conn.execute(
@@ -108,8 +130,8 @@ class _DownloadWorker(QThread):
                        (title, artist, youtube_id, local_path, source, duration_sec, track_type)
                        VALUES (?, ?, ?, ?, 'youtube', ?, ?)""",
                     (
-                        metadata.get("title", title),
-                        metadata.get("uploader"),
+                        db_title,
+                        db_artist,
                         youtube_id,
                         file_path,
                         metadata.get("duration"),
@@ -124,8 +146,8 @@ class _DownloadWorker(QThread):
             )
         return {
             "id": track_id,
-            "title": metadata.get("title", title),
-            "artist": metadata.get("uploader"),
+            "title": db_title,
+            "artist": db_artist,
             "youtube_id": youtube_id,
             "local_path": file_path,
             "source": "youtube",
@@ -141,11 +163,17 @@ class DownloadService(QObject):
     download_complete = pyqtSignal(str, dict)
     download_error = pyqtSignal(str, str)
 
-    def __init__(self, ytdlp_engine: YtdlpEngine, db_conn: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        ytdlp_engine: YtdlpEngine,
+        db_conn: sqlite3.Connection,
+        artist_registry: object | None = None,
+    ) -> None:
         """Inizializza il service e il worker thread."""
         super().__init__()
         self._ytdlp = ytdlp_engine
         self._conn = db_conn
+        self._artist_registry = artist_registry
         self._pending: list[dict] = []
         self._worker: _DownloadWorker | None = None
         config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -190,7 +218,7 @@ class DownloadService(QObject):
 
     def _start_worker(self) -> None:
         """Avvia un nuovo worker thread per i download."""
-        self._worker = _DownloadWorker(self._ytdlp, self._conn)
+        self._worker = _DownloadWorker(self._ytdlp, self._conn, self._artist_registry)
         self._worker.progress.connect(self._on_progress)
         self._worker.complete.connect(self._on_complete)
         self._worker.error.connect(self._on_error)

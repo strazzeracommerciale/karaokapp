@@ -18,18 +18,31 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
+    QDialog,
+    QComboBox,
 )
 
 import config
 from services.app_mode_service import AppModeService
 from services.karaoke_playback_flow import KaraokePlaybackFlow
 from services.queue_service import QueueService
+from services.shortcut_service import (
+    ACTION_PLAY_PAUSE,
+    ACTION_PREVIEW_EXIT,
+    ACTION_PREVIEW_TOGGLE,
+    ACTION_SEEK_BACK,
+    ACTION_SEEK_FORWARD,
+    ACTION_VOLUME_DOWN,
+    ACTION_VOLUME_UP,
+    ShortcutService,
+)
 
 if TYPE_CHECKING:
+    from services.audio_output_service import AudioOutputService
     from services.download_service import DownloadService
     from services.filler_service import FillerService
     from services.library_service import LibraryService
@@ -37,14 +50,16 @@ if TYPE_CHECKING:
     from services.player_service import PlayerService
     from services.search_service import SearchService
 from ui.filler_source_widget import FillerSourceWidget
+from ui.library_browse_window import LibraryBrowseWindow
 from ui.library_widget import LibraryWidget
 from ui.playlist_widget import PlaylistWidget
 from ui.player_widget import PlayerWidget
 from ui.queue_widget import QueueWidget
 from ui.search_widget import SearchWidget
 from ui.theme_service import ThemeService
+from ui.track_metadata_dialog import TrackMetadataDialog
 from ui.video_output_widget import VideoOutputWidget
-from utils.text import clean_title
+from utils.text import clean_title, format_track_display
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +69,7 @@ class MainWindow(QMainWindow):
 
     external_toggle_requested = pyqtSignal(bool)
     dj_console_toggle_requested = pyqtSignal()
+    prep_toggle_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -78,8 +94,11 @@ class MainWindow(QMainWindow):
         self._playlist = playlist_service
         self._theme_service = theme_service
         self._filler: "FillerService | None" = None
+        self._audio_output: "AudioOutputService | None" = None
+        self._library_browse: LibraryBrowseWindow | None = None
         self._pending_filler_youtube_id: str | None = None
         self._dry_run = dry_run
+        self._shortcuts = ShortcutService()
         self._karaoke_flow: KaraokePlaybackFlow | None = None
         if queue_service is not None:
             self._karaoke_flow = KaraokePlaybackFlow(
@@ -93,6 +112,9 @@ class MainWindow(QMainWindow):
         self._yt_limit = config.YT_SEARCH_LIMIT
         self.setWindowTitle("KaraokeManager")
         self._build_ui()
+        if library_service is not None:
+            self._library_browse = LibraryBrowseWindow(library_service)
+            self._library_browse.track_chosen.connect(self._on_track_selected)
         self._connect_karaoke_flow_signals()
         self._connect_widget_signals()
         self._connect_service_signals()
@@ -135,6 +157,18 @@ class MainWindow(QMainWindow):
         self._refresh_filler_playlists()
         self._sync_filler_widget_from_service()
 
+    def set_audio_output_service(self, service: "AudioOutputService | None") -> None:
+        """Collega il selettore uscita audio (solo con VLC attivo)."""
+        self._audio_output = service
+        if service is None:
+            self._audio_output_combo.setVisible(False)
+            self._audio_output_label.setVisible(False)
+            return
+        self._audio_output_combo.setVisible(True)
+        self._audio_output_label.setVisible(True)
+        self._refresh_audio_output_combo()
+        service.device_changed.connect(self._sync_audio_output_combo)
+
     def apply_dj_filler_track(self, track: dict) -> None:
         """Imposta un brano DJ come sottofondo (da consolle DJ o picker)."""
         if self._filler is None:
@@ -155,68 +189,89 @@ class MainWindow(QMainWindow):
         return self._queue_widget
 
     def _build_ui(self) -> None:
-        """Assembla layout principale con pannelli ridimensionabili."""
+        """Assembla layout principale: anteprima | catalogo | coda + player in basso."""
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
+        root.setSpacing(4)
         self._top_bar = QWidget()
         self._top_bar.setObjectName("topBar")
         self._build_top_bar(QHBoxLayout(self._top_bar))
         root.addWidget(self._top_bar, stretch=0)
 
         self._video_output = VideoOutputWidget()
+        self._video_output.setMinimumWidth(240)
 
-        controls_panel = QWidget()
-        controls = QVBoxLayout(controls_panel)
-        controls.setContentsMargins(0, 0, 0, 0)
+        catalog_panel = QWidget()
+        catalog_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        catalog = QVBoxLayout(catalog_panel)
+        catalog.setContentsMargins(0, 0, 0, 0)
+        catalog.setSpacing(4)
         singer_row = QHBoxLayout()
         singer_row.addWidget(QLabel("Cantante:"))
         self._singer_input = QLineEdit()
         self._singer_input.setPlaceholderText("Nome di chi canta")
         singer_row.addWidget(self._singer_input)
-        controls.addLayout(singer_row)
+        catalog.addLayout(singer_row)
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Cerca:"))
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Cerca brani locali o YouTube...")
         self._search_input.textChanged.connect(self._on_search_text_changed)
         search_row.addWidget(self._search_input)
-        controls.addLayout(search_row)
+        catalog.addLayout(search_row)
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(config.SEARCH_DEBOUNCE_MS)
         self._search_debounce.timeout.connect(self._dispatch_search)
         self._pending_query = ""
-        self._tabs = QTabWidget()
         self._search_widget = SearchWidget()
+        self._search_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        catalog.addWidget(self._search_widget, stretch=1)
+        scaletta_row = QHBoxLayout()
+        self._browse_library_btn = QPushButton("Sfoglia libreria")
+        self._browse_library_btn.setObjectName("secondaryButton")
+        self._browse_library_btn.setToolTip(
+            "Apre l'elenco completo della libreria con filtri artista e brano"
+        )
+        self._browse_library_btn.clicked.connect(self._on_browse_library)
+        scaletta_row.addWidget(self._browse_library_btn)
+        self._scaletta_btn = QPushButton("Scaletta ▾")
+        self._scaletta_btn.setObjectName("secondaryButton")
+        self._scaletta_menu = QMenu(self)
+        self._scaletta_menu.aboutToShow.connect(self._populate_scaletta_menu)
+        self._scaletta_btn.setMenu(self._scaletta_menu)
+        scaletta_row.addWidget(self._scaletta_btn)
+        scaletta_row.addStretch()
+        catalog.addLayout(scaletta_row)
         self._library_widget = LibraryWidget()
+        self._library_widget.hide()
         self._playlist_widget = PlaylistWidget()
-        self._tabs.addTab(self._search_widget, "Ricerca")
-        self._tabs.addTab(self._library_widget, "Libreria")
-        self._tabs.addTab(self._playlist_widget, "Playlist")
-        controls.addWidget(self._tabs, stretch=1)
-        self._player_widget = PlayerWidget()
-        controls.addWidget(self._player_widget, stretch=0)
-
-        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._left_splitter.setHandleWidth(10)
-        self._left_splitter.addWidget(self._video_output)
-        self._left_splitter.addWidget(controls_panel)
-        self._left_splitter.setStretchFactor(0, 3)
-        self._left_splitter.setStretchFactor(1, 2)
+        self._playlist_widget.hide()
 
         self._queue_widget = QueueWidget()
+        self._queue_widget.setMinimumWidth(180)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(10)
-        self._main_splitter.addWidget(self._left_splitter)
+        self._main_splitter.addWidget(self._video_output)
+        self._main_splitter.addWidget(catalog_panel)
         self._main_splitter.addWidget(self._queue_widget)
-        self._main_splitter.setStretchFactor(0, 3)
-        self._main_splitter.setStretchFactor(1, 1)
+        self._main_splitter.setStretchFactor(0, 2)
+        self._main_splitter.setStretchFactor(1, 6)
+        self._main_splitter.setStretchFactor(2, 2)
         root.addWidget(self._main_splitter, stretch=1)
 
+        self._player_widget = PlayerWidget()
+        root.addWidget(self._player_widget, stretch=0)
+
         self._preview_maximized = False
-        self._saved_left_sizes: list[int] | None = None
         self._saved_main_sizes: list[int] | None = None
         self._splitters_initialized = False
 
@@ -249,6 +304,24 @@ class MainWindow(QMainWindow):
         self._dj_console_btn.setObjectName("secondaryButton")
         self._dj_console_btn.clicked.connect(self._on_dj_console_toggle)
         bar.addWidget(self._dj_console_btn)
+        self._prep_btn = QPushButton("Preparazione")
+        self._prep_btn.setObjectName("secondaryButton")
+        self._prep_btn.clicked.connect(self._on_prep_toggle)
+        bar.addWidget(self._prep_btn)
+        bar.addSpacing(12)
+        self._audio_output_label = QLabel("Audio:")
+        self._audio_output_label.setVisible(False)
+        bar.addWidget(self._audio_output_label)
+        self._audio_output_combo = QComboBox()
+        self._audio_output_combo.setMinimumWidth(180)
+        self._audio_output_combo.setVisible(False)
+        self._audio_output_combo.setToolTip(
+            "Dispositivo di uscita audio per karaoke, DJ e preparazione.\n"
+            "Se senti il segnale nel mixer Windows ma non dagli altoparlanti,\n"
+            "scegli gli speaker del PC (non HDMI / Audio remoto)."
+        )
+        self._audio_output_combo.currentIndexChanged.connect(self._on_audio_output_changed)
+        bar.addWidget(self._audio_output_combo)
         bar.addSpacing(12)
         self._external_available = False
         self._external_btn = QPushButton("Monitor esterno: OFF")
@@ -274,19 +347,22 @@ class MainWindow(QMainWindow):
             self._splitters_initialized = True
 
     def _apply_initial_splitter_sizes(self) -> None:
-        """Imposta proporzioni iniziali video/controlli e colonna/coda."""
+        """Imposta proporzioni iniziali anteprima / catalogo / coda."""
         if self._preview_maximized:
             return
-        left_total = self._left_splitter.height()
-        if left_total > 0:
-            controls_h = max(280, int(left_total * 0.42))
-            video_h = max(200, left_total - controls_h)
-            self._left_splitter.setSizes([video_h, controls_h])
-        main_total = self._main_splitter.width()
-        if main_total > 0:
-            left_w = max(400, int(main_total * 0.75))
-            queue_w = max(180, main_total - left_w)
-            self._main_splitter.setSizes([left_w, queue_w])
+        self._apply_tab_layout()
+
+    def _apply_tab_layout(self) -> None:
+        """Adatta lo splitter: anteprima compatta, catalogo ricerca ampio, coda laterale."""
+        if self._preview_maximized:
+            return
+        total = self._main_splitter.width()
+        if total <= 0:
+            return
+        preview = max(260, int(total * 0.28))
+        queue = max(180, int(total * 0.22))
+        catalog = max(420, total - preview - queue)
+        self._main_splitter.setSizes([preview, catalog, queue])
 
     def _connect_karaoke_flow_signals(self) -> None:
         """Collega i segnali del flow karaoke agli aggiornamenti UI (idempotente)."""
@@ -308,14 +384,15 @@ class MainWindow(QMainWindow):
     def _connect_widget_signals(self) -> None:
         """Collega segnali interni widget → handler."""
         self._search_widget.track_selected.connect(self._on_track_selected)
-        self._search_widget.preview_requested.connect(self._on_preview_requested)
         self._search_widget.save_to_library_requested.connect(self._on_save_to_library)
         self._search_widget.load_more_requested.connect(self._on_load_more)
         self._search_widget.set_as_filler_requested.connect(self._on_set_as_filler)
+        self._search_widget.add_to_playlist_requested.connect(self._on_add_to_playlist)
         self._library_widget.track_selected.connect(self._on_track_selected)
         self._library_widget.refresh_requested.connect(self._on_library_refresh)
         self._library_widget.add_to_playlist_requested.connect(self._on_add_to_playlist)
         self._library_widget.delete_requested.connect(self._on_library_delete_requested)
+        self._library_widget.edit_metadata_requested.connect(self._on_library_edit_metadata)
         self._library_widget.set_as_filler_requested.connect(self._on_set_as_filler)
         self._playlist_widget.track_selected.connect(self._on_track_selected)
         self._playlist_widget.create_requested.connect(self._on_playlist_create)
@@ -323,7 +400,6 @@ class MainWindow(QMainWindow):
         self._playlist_widget.playlist_changed.connect(self._on_playlist_load_tracks)
         self._playlist_widget.enqueue_all_requested.connect(self._on_playlist_enqueue_all)
         self._playlist_widget.remove_track_requested.connect(self._on_playlist_remove_track)
-        self._tabs.currentChanged.connect(self._on_tab_changed)
         self._player_widget.play_pause_clicked.connect(self._on_play_pause)
         self._player_widget.stop_clicked.connect(self._on_stop)
         self._player_widget.skip_clicked.connect(self._on_skip)
@@ -386,9 +462,7 @@ class MainWindow(QMainWindow):
         self._search_debounce.start()
 
     def _dispatch_search(self) -> None:
-        """Esegue la ricerca unificata solo dalla scheda Ricerca."""
-        if self._tabs.currentWidget() is not self._search_widget:
-            return
+        """Esegue la ricerca unificata locali + YouTube."""
         self._on_search(self._pending_query.strip())
 
     def _on_search(self, query: str) -> None:
@@ -422,18 +496,6 @@ class MainWindow(QMainWindow):
         if self._queue is not None:
             self._queue.add(track, singer_name=name)
 
-    def _on_preview_requested(self, track: dict) -> None:
-        """Riproduce anteprima stream/local senza accodare né scaricare."""
-        if self._player is None:
-            QMessageBox.information(
-                self,
-                "Anteprima",
-                "Anteprima non disponibile in questa modalità.",
-            )
-            return
-        if self._karaoke_flow is not None:
-            self._karaoke_flow.preview_track(track)
-
     def _on_save_to_library(self, track: dict) -> None:
         """Avvia il download YouTube senza accodare."""
         if self._search is not None and track.get("source") == "youtube":
@@ -460,6 +522,25 @@ class MainWindow(QMainWindow):
             if self._queue is not None:
                 self._queue_widget.set_queue(self._queue.get_queue())
 
+    def _on_library_edit_metadata(self, track: dict) -> None:
+        """Apre il dialog per correggere artista e titolo in libreria."""
+        track_id = track.get("id")
+        if track_id is None or self._library is None:
+            return
+        dialog = TrackMetadataDialog(
+            track.get("title", ""),
+            track.get("artist"),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        title = dialog.title_value()
+        if not title:
+            QMessageBox.warning(self, "Modifica brano", "Il titolo non può essere vuoto.")
+            return
+        if self._library.update_track_metadata(track_id, title, dialog.artist_value()):
+            self._on_library_refresh()
+
     def _on_library_refresh(self, sort: str = "") -> None:
         """Aggiorna la lista della libreria locale."""
         if self._library is None:
@@ -471,14 +552,25 @@ class MainWindow(QMainWindow):
         """Popola la libreria all'avvio se il service è disponibile."""
         self._on_library_refresh()
 
-    def _on_tab_changed(self, index: int) -> None:
-        """Aggiorna la scheda attiva senza propagare la query Ricerca al filtro libreria."""
-        if self._tabs.widget(index) is self._library_widget:
-            self._on_library_refresh()
-        elif self._tabs.widget(index) is self._playlist_widget:
-            self._refresh_playlists()
-        else:
-            self._on_search(self._search_input.text().strip())
+    def _populate_scaletta_menu(self) -> None:
+        """Compila il menu rapido per accodare un'intera scaletta."""
+        self._scaletta_menu.clear()
+        if self._playlist is None:
+            action = self._scaletta_menu.addAction("(Non disponibile)")
+            action.setEnabled(False)
+            return
+        playlists = self._playlist.list_playlists(mode="karaoke")
+        if not playlists:
+            action = self._scaletta_menu.addAction("(Nessuna scaletta)")
+            action.setEnabled(False)
+            return
+        for playlist in playlists:
+            name = playlist["name"]
+            playlist_id = playlist["id"]
+            action = self._scaletta_menu.addAction(f"Accoda «{name}»")
+            action.triggered.connect(
+                lambda _checked=False, pid=playlist_id: self._on_playlist_enqueue_all(pid)
+            )
 
     def _refresh_playlists(self) -> None:
         """Ricarica l'elenco delle playlist karaoke mantenendo la selezione."""
@@ -566,6 +658,31 @@ class MainWindow(QMainWindow):
         """Richiede a main.py il toggle show/hide della consolle DJ."""
         self.dj_console_toggle_requested.emit()
 
+    def _on_prep_toggle(self) -> None:
+        """Richiede a main.py il toggle show/hide della finestra Preparazione."""
+        self.prep_toggle_requested.emit()
+
+    def on_library_data_changed(self) -> None:
+        """Sincronizza libreria nascosta, scalette e ricerca dopo modifiche in Preparazione."""
+        self._refresh_library()
+        self._refresh_playlists()
+        if self._library_browse is not None:
+            self._library_browse.refresh_if_visible()
+        query = self._search_input.text().strip()
+        if query:
+            self._on_search(query)
+
+    def _on_browse_library(self) -> None:
+        """Apre la finestra di sfoglio libreria per accodare un brano."""
+        if self._library_browse is None:
+            QMessageBox.information(
+                self,
+                "Sfoglia libreria",
+                "Libreria non disponibile in questa modalità.",
+            )
+            return
+        self._library_browse.open_browse()
+
     def _sync_mode_pills(self, mode: str) -> None:
         """Aggiorna le pill modalità nella titlebar."""
         karaoke_active = mode == "karaoke"
@@ -625,6 +742,40 @@ class MainWindow(QMainWindow):
         if self._player is not None:
             self._player.set_volume(value)
 
+    def _refresh_audio_output_combo(self) -> None:
+        """Popola il menu dispositivi audio da libVLC."""
+        if self._audio_output is None:
+            return
+        current = self._audio_output.current_device_id()
+        self._audio_output_combo.blockSignals(True)
+        self._audio_output_combo.clear()
+        selected_index = 0
+        for index, (device_id, label) in enumerate(self._audio_output.list_devices()):
+            self._audio_output_combo.addItem(label, device_id)
+            if device_id == current:
+                selected_index = index
+        self._audio_output_combo.setCurrentIndex(selected_index)
+        self._audio_output_combo.blockSignals(False)
+
+    def _sync_audio_output_combo(self, device_id: str) -> None:
+        """Allinea la combo al device corrente senza riemettere il cambio."""
+        for index in range(self._audio_output_combo.count()):
+            if self._audio_output_combo.itemData(index) == device_id:
+                if self._audio_output_combo.currentIndex() != index:
+                    self._audio_output_combo.blockSignals(True)
+                    self._audio_output_combo.setCurrentIndex(index)
+                    self._audio_output_combo.blockSignals(False)
+                return
+
+    def _on_audio_output_changed(self, _index: int) -> None:
+        """Persiste la scelta del dispositivo di uscita audio."""
+        if self._audio_output is None:
+            return
+        device_id = self._audio_output_combo.currentData()
+        if device_id is None:
+            device_id = ""
+        self._audio_output.set_device_id(str(device_id))
+
     def set_external_available(self, available: bool) -> None:
         """Abilita il pulsante solo se è presente un secondo schermo."""
         self._external_available = available
@@ -676,9 +827,7 @@ class MainWindow(QMainWindow):
             return
         labels: list[str] = []
         for track in tracks:
-            artist = track.get("artist") or ""
-            artist_part = f" — {artist}" if artist else ""
-            labels.append(f"{track.get('title', '')}{artist_part}")
+            labels.append(format_track_display(track.get("title", ""), track.get("artist")))
         chosen, ok = QInputDialog.getItem(
             self,
             "Brano DJ sottofondo",
@@ -799,33 +948,51 @@ class MainWindow(QMainWindow):
         QApplication.instance().quit()
         super().closeEvent(event)
 
+    def _toggle_preview_shortcut(self) -> None:
+        """Scorciatoia anteprima a schermo intero (configurabile, default Alt+X)."""
+        self._toggle_preview()
+
+    def _handle_playback_shortcut(self, action: str) -> None:
+        """Esegue un'azione playback in base al binding configurato."""
+        if action == ACTION_PLAY_PAUSE:
+            self._on_play_pause()
+        elif action == ACTION_SEEK_FORWARD:
+            self._seek_relative(5)
+        elif action == ACTION_SEEK_BACK:
+            self._seek_relative(-5)
+        elif action == ACTION_VOLUME_UP:
+            self._nudge_volume(5)
+        elif action == ACTION_VOLUME_DOWN:
+            self._nudge_volume(-5)
+
     def eventFilter(self, obj, event) -> bool:
-        """Scorciatoie globali stile YouTube indipendenti dal focus."""
-        if event.type() == QEvent.Type.KeyPress:
-            if QApplication.activeModalWidget() is not None:
-                return super().eventFilter(obj, event)
-            focus = QApplication.focusWidget()
-            if isinstance(focus, QLineEdit):
-                return super().eventFilter(obj, event)
-            key = event.key()
-            if key == Qt.Key.Key_Space:
-                self._on_play_pause()
-                return True
-            if key == Qt.Key.Key_Right:
-                self._seek_relative(5)
-                return True
-            if key == Qt.Key.Key_Left:
-                self._seek_relative(-5)
-                return True
-            if key == Qt.Key.Key_Up:
-                self._nudge_volume(5)
-                return True
-            if key == Qt.Key.Key_Down:
-                self._nudge_volume(-5)
-                return True
-            if key == Qt.Key.Key_F11:
-                self._toggle_preview()
-                return True
+        """Scorciatoie globali (anche in campi testo) e playback (solo fuori dai campi)."""
+        if event.type() != QEvent.Type.KeyPress:
+            return super().eventFilter(obj, event)
+        if QApplication.activeModalWidget() is not None:
+            return super().eventFilter(obj, event)
+
+        combination = event.keyCombination()
+        global_action = self._shortcuts.match_global(
+            combination,
+            preview_maximized=self._preview_maximized,
+        )
+        if global_action == ACTION_PREVIEW_TOGGLE:
+            self._toggle_preview_shortcut()
+            return True
+        if global_action == ACTION_PREVIEW_EXIT:
+            self._toggle_preview_shortcut()
+            return True
+
+        focus = QApplication.focusWidget()
+        if isinstance(focus, QLineEdit):
+            return super().eventFilter(obj, event)
+
+        playback_action = self._shortcuts.match_playback(combination)
+        if playback_action is not None:
+            self._handle_playback_shortcut(playback_action)
+            return True
+
         return super().eventFilter(obj, event)
 
     def _seek_relative(self, delta_sec: float) -> None:
@@ -848,20 +1015,19 @@ class MainWindow(QMainWindow):
         self._player_widget.set_volume_value(new_value)
 
     def _toggle_preview(self) -> None:
-        """Alterna tra anteprima massimizzata e dimensioni precedenti dei frame."""
+        """Alterna tra anteprima massimizzata e layout operativo."""
         if not self._preview_maximized:
-            self._saved_left_sizes = self._left_splitter.sizes()
             self._saved_main_sizes = self._main_splitter.sizes()
-            left_total = sum(self._saved_left_sizes)
             main_total = sum(self._saved_main_sizes)
-            self._left_splitter.setSizes([left_total, 0])
-            self._main_splitter.setSizes([main_total, 0])
+            self._main_splitter.setSizes([main_total, 0, 0])
+            self._player_widget.setVisible(False)
             self._preview_maximized = True
         else:
-            if self._saved_left_sizes is not None:
-                self._left_splitter.setSizes(self._saved_left_sizes)
             if self._saved_main_sizes is not None:
                 self._main_splitter.setSizes(self._saved_main_sizes)
+            else:
+                self._apply_tab_layout()
+            self._player_widget.setVisible(True)
             self._preview_maximized = False
 
     def _on_queue_play(self, queue_id: int) -> None:

@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from utils.text import format_track_display
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,7 +91,7 @@ class QueueWidget(QWidget):
             dl_suffix = "" if item.get("ready", True) else "  ⏬ in download"
             label = (
                 f"{status_icon} {item.get('singer_name', 'Anonimo')} — "
-                f"{item.get('title', '')}{dl_suffix}"
+                f"{format_track_display(item.get('title', ''), item.get('artist'))}{dl_suffix}"
             )
             list_item = QListWidgetItem(label)
             list_item.setData(Qt.ItemDataRole.UserRole, item.get("queue_id"))

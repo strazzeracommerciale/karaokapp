@@ -4,27 +4,18 @@
 
 import logging
 
-
-
 from PyQt6.QtCore import Qt, pyqtSignal
-
 from PyQt6.QtWidgets import (
-
     QHBoxLayout,
-
     QLabel,
-
     QPushButton,
-
     QSizePolicy,
-
     QSlider,
-
     QVBoxLayout,
-
     QWidget,
-
 )
+
+from utils.text import format_track_display
 
 
 
@@ -246,9 +237,7 @@ class PlayerWidget(QWidget):
 
         """Aggiorna etichetta brano corrente."""
 
-        artist_part = f" — {artist}" if artist else ""
-
-        self._title_label.setText(f"{title}{artist_part}")
+        self._title_label.setText(format_track_display(title, artist))
 
 
 

@@ -1,11 +1,11 @@
-"""Smoke test UI: filtro libreria disaccoppiato e layout top bar / splitter."""
+"""Smoke test UI: ricerca unificata e layout top bar / splitter."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QApplication
 
 from db import db_core
@@ -42,15 +42,14 @@ def _make_window() -> MainWindow:
     return window
 
 
-def test_library_tab_not_filtered_by_search_query() -> None:
-    """Passare a Libreria dopo una ricerca non deve applicare il filtro Ricerca."""
+def test_search_does_not_filter_hidden_library() -> None:
+    """Digitare in Cerca non deve filtrare il widget libreria (nascosto, per preparazione)."""
     window = _make_window()
     total = len(LibraryService(db_core.get_conn()).list_tracks())
     assert total > 0, "serve almeno un brano in libreria per il test"
 
     window._search_input.setText("take it easy eagles karaoke query lunga")
-    window._tabs.setCurrentWidget(window._library_widget)
-    window._on_tab_changed(window._tabs.currentIndex())
+    window._dispatch_search()
     _app.processEvents()
 
     assert window._library_widget._list.count() == total
@@ -59,10 +58,8 @@ def test_library_tab_not_filtered_by_search_query() -> None:
 
 
 def test_library_internal_filter() -> None:
-    """Il filtro dedicato in Libreria restringe la lista senza toccare Ricerca."""
+    """Il filtro dedicato in Libreria (preparazione) restringe la lista."""
     window = _make_window()
-    window._tabs.setCurrentWidget(window._library_widget)
-    window._on_tab_changed(window._tabs.currentIndex())
     _app.processEvents()
 
     window._library_widget.filter("zzzznonexistent999")
@@ -77,22 +74,37 @@ def test_library_internal_filter() -> None:
 
 
 def test_top_bar_and_splitter_layout() -> None:
-    """La top bar resta compatta e l'anteprima riceve spazio verticale adeguato."""
+    """Layout a tre colonne: anteprima compatta, catalogo ampio, coda laterale."""
     window = _make_window()
     window._apply_initial_splitter_sizes()
     _app.processEvents()
 
     main_y = window._main_splitter.geometry().y()
     filler_h = window._filler_source.height()
-    video_h = window._video_output.height()
-    left_sizes = window._left_splitter.sizes()
+    sizes = window._main_splitter.sizes()
+    catalog_w = sizes[1]
 
     assert main_y < 120, f"top bar troppo alta: main_splitter y={main_y}"
     assert filler_h <= 72, f"FillerSourceWidget troppo alto: {filler_h}px"
-    assert video_h >= 250, f"anteprima troppo piccola: {video_h}px"
-    assert left_sizes[0] > left_sizes[1] * 0.5, f"splitter sbilanciato: {left_sizes}"
+    assert catalog_w >= 400, f"pannello catalogo troppo stretto: {catalog_w}px"
+    assert sizes[1] > sizes[0], f"catalogo deve essere più largo dell'anteprima: {sizes}"
     assert window._player_widget._set_start_btn.text() == "Inizia da qui"
     assert window._player_widget._set_start_btn.isVisible()
+    window.close()
+
+
+def test_search_has_vertical_space() -> None:
+    """La lista risultati ricerca occupa la maggior parte del pannello catalogo."""
+    window = _make_window()
+    window._apply_tab_layout()
+    _app.processEvents()
+
+    list_h = window._search_widget._results_list.height()
+    catalog_panel_h = window._main_splitter.widget(1).height()
+    assert list_h >= 200, f"lista ricerca troppo bassa: {list_h}px"
+    assert list_h >= int(catalog_panel_h * 0.55), (
+        f"lista ({list_h}px) usa meno del 55% del pannello catalogo ({catalog_panel_h}px)"
+    )
     window.close()
 
 
@@ -110,23 +122,72 @@ def test_filler_long_source_label_stays_on_second_row() -> None:
 
 
 def test_f11_maximizes_preview() -> None:
-    """F11 collassa controlli e coda lasciando solo l'anteprima."""
+    """F11 collassa catalogo e coda lasciando solo l'anteprima."""
     window = _make_window()
     window._apply_initial_splitter_sizes()
     _app.processEvents()
-    saved_controls = window._left_splitter.sizes()[1]
-    assert saved_controls > 0
+    saved_catalog = window._main_splitter.sizes()[1]
+    assert saved_catalog > 0
 
     window._toggle_preview()
     _app.processEvents()
     assert window._preview_maximized
-    assert window._left_splitter.sizes()[1] == 0
     assert window._main_splitter.sizes()[1] == 0
+    assert window._main_splitter.sizes()[2] == 0
+    assert not window._player_widget.isVisible()
 
     window._toggle_preview()
     _app.processEvents()
     assert not window._preview_maximized
-    assert window._left_splitter.sizes()[1] == saved_controls
+    assert window._main_splitter.sizes()[1] == saved_catalog
+    assert window._player_widget.isVisible()
+    window.close()
+
+
+def test_preview_shortcuts_without_f11() -> None:
+    """Alt+X attiva anteprima anche con focus simulato fuori dai campi testo."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtWidgets import QApplication
+
+    window = _make_window()
+    window._apply_initial_splitter_sizes()
+    _app.processEvents()
+
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_X,
+        Qt.KeyboardModifier.AltModifier,
+    )
+    QApplication.sendEvent(window, event)
+    _app.processEvents()
+    assert window._preview_maximized
+
+    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(window, esc)
+    _app.processEvents()
+    assert not window._preview_maximized
+    window.close()
+
+
+def test_preview_shortcut_works_while_search_focused() -> None:
+    """Alt+X funziona anche con il cursore nel campo Cerca."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtWidgets import QApplication
+
+    window = _make_window()
+    window._search_input.setFocus()
+    _app.processEvents()
+
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_X,
+        Qt.KeyboardModifier.AltModifier,
+    )
+    QApplication.sendEvent(window, event)
+    _app.processEvents()
+    assert window._preview_maximized
     window.close()
 
 
@@ -135,7 +196,7 @@ def test_vlc_resize_callback_invoked() -> None:
     window = _make_window()
     received: list[object] = []
     window.set_vlc_output_rebind(lambda widget: received.append(widget))
-    window._left_splitter.setSizes([700, 180])
+    window._main_splitter.setSizes([280, 700, 220])
     window.resize(1300, 850)
     _app.processEvents()
     QTimer.singleShot(250, _app.quit)
@@ -170,10 +231,14 @@ def test_theme_switch_light_and_dark() -> None:
 def _run_all() -> None:
     """Esegue tutti i test e segnala errori."""
     tests = [
-        test_library_tab_not_filtered_by_search_query,
+        test_search_does_not_filter_hidden_library,
         test_library_internal_filter,
         test_top_bar_and_splitter_layout,
+        test_search_has_vertical_space,
+        test_filler_long_source_label_stays_on_second_row,
         test_f11_maximizes_preview,
+        test_preview_shortcuts_without_f11,
+        test_preview_shortcut_works_while_search_focused,
         test_vlc_resize_callback_invoked,
         test_theme_switch_light_and_dark,
     ]

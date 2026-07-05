@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.text import clean_title
+from utils.text import build_download_basename, clean_title, format_track_display, parse_artist_title
 
 
 def test_artist_title_with_noise() -> None:
@@ -26,6 +26,58 @@ def test_strips_extension() -> None:
 def test_empty() -> None:
     """Stringa vuota → vuota."""
     assert clean_title("") == ""
+
+
+def test_parse_artist_title() -> None:
+    """Separa artista e titolo da un titolo YouTube karaoke."""
+    from services.artist_registry_service import ArtistRegistryService
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE known_artists (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            name_normalized TEXT NOT NULL UNIQUE,
+            source TEXT NOT NULL DEFAULT 'seed',
+            use_count INTEGER NOT NULL DEFAULT 1,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    registry = ArtistRegistryService(conn)
+    registry.register("Vasco Rossi", source="seed")
+
+    assert parse_artist_title(
+        "Vasco Rossi - Albachiara (Karaoke Version) [HD]", registry=registry
+    ) == (
+        "Vasco Rossi",
+        "Albachiara",
+    )
+    assert parse_artist_title(
+        "Albachiara - Vasco Rossi | Base Musicale", registry=registry
+    ) == (
+        "Vasco Rossi",
+        "Albachiara",
+    )
+    assert parse_artist_title("Albachiara (Karaoke)") == ("", "Albachiara")
+
+
+def test_format_track_display() -> None:
+    """Mostra artista prima del titolo."""
+    assert format_track_display("Albachiara", "Vasco Rossi") == "Vasco Rossi — Albachiara"
+    assert format_track_display("Albachiara", None) == "Albachiara"
+    assert format_track_display("", "Vasco Rossi") == "Vasco Rossi"
+    assert format_track_display("Titolo", "Artista", suffix=" ✓") == "Artista — Titolo ✓"
+
+
+def test_build_download_basename() -> None:
+    """Il nome file include artista, titolo e id YouTube per univocità."""
+    name = build_download_basename("Vasco Rossi", "Albachiara", "YZSbny3Iyeg")
+    assert name == "Vasco Rossi - Albachiara [YZSbny3Iyeg]"
 
 
 def test_returns_str_non_empty() -> None:

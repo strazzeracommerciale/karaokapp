@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from utils.text import format_track_display
+
 logger = logging.getLogger(__name__)
 
 _TRACK_DATA_ROLE = Qt.ItemDataRole.UserRole
@@ -97,9 +99,9 @@ class DjPlaylistWidget(QWidget):
         self._list.clear()
         for track in tracks:
             ready = "" if track.get("ready", True) else "  (file mancante)"
-            artist = track.get("artist") or ""
-            artist_part = f" — {artist}" if artist else ""
-            item = QListWidgetItem(f"{track.get('title', '')}{artist_part}{ready}")
+            item = QListWidgetItem(
+                format_track_display(track.get("title", ""), track.get("artist"), suffix=ready)
+            )
             item.setData(_TRACK_DATA_ROLE, track)
             self._list.addItem(item)
         has_tracks = len(tracks) > 0

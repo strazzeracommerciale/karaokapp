@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from utils.text import clean_title
+from utils.text import clean_title, format_track_display
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ class HdmiWindow(QWidget):
 
     def update_current(self, singer_name: str, title: str, artist: str | None = None) -> None:
         """Annuncia cantante e brano sullo schermo esterno (senza avviare il video)."""
-        self._overlay.set_current(singer_name, clean_title(title))
+        self._overlay.set_current(singer_name, format_track_display(clean_title(title), artist))
         self._show_overlay()
 
     def update_next(self, queue: list[dict]) -> None:
@@ -160,7 +160,10 @@ class HdmiWindow(QWidget):
         waiting = [item for item in queue if item.get("status") == "waiting"]
         if waiting:
             next_item = waiting[0]
-            song = clean_title(next_item.get("title", ""))
+            song = format_track_display(
+                clean_title(next_item.get("title", "")),
+                next_item.get("artist"),
+            )
             self._overlay.set_next(f"Prossimo: {next_item.get('singer_name', '')} — {song}")
         else:
             self._overlay.set_next("")

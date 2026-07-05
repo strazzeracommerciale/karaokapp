@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 import config
 from ui.search_widget import _is_youtube_stream_only
+from utils.text import format_track_display
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +104,7 @@ class DjSearchWidget(QWidget):
         for track in results:
             origin = track.get("origin", track.get("source", "local"))
             badge = {"local": "[LOCAL]", "youtube": "[YT]"}.get(origin, "[?]")
-            artist = track.get("artist", "") or ""
-            artist_part = f" — {artist}" if artist else ""
-            label = f"{badge} {track.get('title', '')}{artist_part}"
+            label = f"{badge} {format_track_display(track.get('title', ''), track.get('artist'))}"
             item = QListWidgetItem(label)
             item.setData(_TRACK_DATA_ROLE, track)
             self._results_list.addItem(item)
@@ -125,8 +124,7 @@ class DjSearchWidget(QWidget):
             track = item.data(_TRACK_DATA_ROLE)
             if track and track.get("youtube_id") == youtube_id:
                 artist = track.get("artist", "") or ""
-                artist_part = f" — {artist}" if artist else ""
-                item.setText(f"[DL] {track.get('title', '')}{artist_part}")
+                item.setText(f"[DL] {format_track_display(track.get('title', ''), artist)}")
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
         """YouTube non scaricato: anteprima; altrimenti aggiunge al runtime."""

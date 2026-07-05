@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS tracks (
     start_offset_sec REAL DEFAULT 0,
     play_count INTEGER DEFAULT 0,
     last_played DATETIME,
+    metadata_confirmed INTEGER NOT NULL DEFAULT 0,
+    metadata_confirmed_at DATETIME,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS playlists (
@@ -49,3 +51,14 @@ CREATE TABLE IF NOT EXISTS download_log (
     status TEXT DEFAULT 'pending',
     downloaded_at DATETIME
 );
+CREATE TABLE IF NOT EXISTS known_artists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_normalized TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL DEFAULT 'seed'
+        CHECK(source IN ('seed', 'manual', 'download', 'import')),
+    use_count INTEGER NOT NULL DEFAULT 1,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_known_artists_normalized ON known_artists(name_normalized);

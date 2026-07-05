@@ -27,6 +27,17 @@ def get_conn() -> sqlite3.Connection:
     return _conn
 
 
+def _bootstrap_artist_registry(conn: sqlite3.Connection) -> None:
+    """Carica il seed artisti al primo avvio e arricchisce dal catalogo esistente."""
+    from services.artist_registry_service import ArtistRegistryService
+
+    registry = ArtistRegistryService(conn)
+    if registry.count() > 0:
+        return
+    registry.import_from_file(config.ARTIST_REGISTRY_SEED_PATH, source="seed")
+    registry.bootstrap_from_tracks()
+
+
 def migrate() -> None:
     """Applica lo schema SQL creando le tabelle se non esistono."""
     schema_path = config.SCHEMA_PATH
@@ -35,7 +46,10 @@ def migrate() -> None:
     with conn:
         conn.executescript(schema_sql)
         _ensure_column(conn, "tracks", "start_offset_sec", "REAL DEFAULT 0")
+        _ensure_column(conn, "tracks", "metadata_confirmed", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "tracks", "metadata_confirmed_at", "DATETIME")
     _migrate_track_type(conn)
+    _bootstrap_artist_registry(conn)
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     config.DJ_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Migrazione database completata")

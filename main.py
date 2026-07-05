@@ -22,6 +22,7 @@ from services.playlist_service import PlaylistService
 from services.queue_service import QueueService
 from services.search_service import SearchService
 from ui.dj_console_window import DjConsoleWindow
+from ui.prep_window import PrepWindow
 from ui.hdmi_window import HdmiWindow
 from ui.main_window import MainWindow
 from ui.theme_service import ThemeService
@@ -66,6 +67,26 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Con --migrate-paths: destinazione esplicita (es. cartella install sul portatile)",
     )
+    parser.add_argument(
+        "--refresh-metadata",
+        action="store_true",
+        help="Ricalcola artista/titolo sui brani già in libreria (senza avviare l'UI)",
+    )
+    parser.add_argument(
+        "--refresh-rename-files",
+        action="store_true",
+        help="Con --refresh-metadata: rinomina i file locali nel formato Artista - Titolo [id]",
+    )
+    parser.add_argument(
+        "--refresh-parse-only",
+        action="store_true",
+        help="Con --refresh-metadata: non interroga YouTube, usa solo il parsing del titolo",
+    )
+    parser.add_argument(
+        "--refresh-dry-run",
+        action="store_true",
+        help="Con --refresh-metadata: mostra le modifiche senza scrivere DB o rinominare file",
+    )
     return parser.parse_args()
 
 
@@ -99,6 +120,34 @@ def _install_crash_logger() -> None:
         sys.__excepthook__(exc_type, exc, tb)
 
     sys.excepthook = _hook
+
+
+def _refresh_metadata(args: argparse.Namespace) -> int:
+    """Ricalcola metadati (e opzionalmente rinomina file) sull'archivio esistente."""
+    from services.artist_registry_service import ArtistRegistryService
+    from services.metadata_refresh_service import MetadataRefreshService
+
+    conn = db_core.get_conn()
+    artist_registry = ArtistRegistryService(conn)
+    service = MetadataRefreshService(conn, artist_registry=artist_registry)
+    stats = service.refresh_all(
+        rename_files=args.refresh_rename_files,
+        parse_only=args.refresh_parse_only,
+        dry_run=args.refresh_dry_run,
+        skip_confirmed=False,
+    )
+    db_core.close()
+    mode = "simulazione" if args.refresh_dry_run else "completato"
+    print(f"Aggiornamento metadati {mode}.")
+    print(f"  Brani esaminati:     {stats['total']}")
+    print(f"  Metadati aggiornati: {stats['metadata_updated']}")
+    print(f"  File rinominati:     {stats['files_renamed']}")
+    print(f"  Già corretti:        {stats['unchanged']}")
+    print(f"  Saltati:             {stats['skipped']}")
+    if stats["errors"]:
+        print(f"  Errori:              {stats['errors']}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _migrate_paths(old_root: str, new_root: str | None = None) -> int:
@@ -162,6 +211,16 @@ def _toggle_dj_console(dj_console_window: DjConsoleWindow) -> None:
     dj_console_window.activateWindow()
 
 
+def _toggle_prep_window(prep_window: PrepWindow) -> None:
+    """Mostra o nasconde la finestra Preparazione (toggle show/hide)."""
+    if prep_window.isVisible():
+        prep_window.hide()
+        return
+    prep_window.show()
+    prep_window.raise_()
+    prep_window.activateWindow()
+
+
 def _cleanup() -> None:
     """Shutdown pulito: connessione DB."""
     db_core.close()
@@ -212,6 +271,10 @@ def main() -> int:
     if args.migrate_paths:
         _setup_logging()
         return _migrate_paths(args.migrate_paths, args.migrate_paths_to)
+    if args.refresh_metadata:
+        _setup_logging()
+        db_core.migrate()
+        return _refresh_metadata(args)
     _install_crash_logger()
     _setup_logging()
     logger.info("Avvio %s v%s (dry_run=%s)", config.APP_NAME, config.APP_VERSION, args.dry_run)
@@ -236,15 +299,20 @@ def main() -> int:
     logger.info("Sessione creata: id=%s", session_id)
 
     queue_service = QueueService(conn, session_id)
-    library_service = LibraryService(conn)
+    from services.artist_registry_service import ArtistRegistryService
+
+    artist_registry = ArtistRegistryService(conn)
+    library_service = LibraryService(conn, artist_registry)
     playlist_service = PlaylistService(conn)
     display_manager = DisplayManager()
     app_mode_service = AppModeService()
     dj_runtime_service = DjRuntimeService()
     dj_playback_flow = DjPlaybackFlow(dj_runtime_service)
 
-    player_service: object | None = None
-    dj_player_service: object | None = None
+    prep_player_service = None
+    vlc_prep_engine = None
+    dj_player_service = None
+    player_service = None
     search_service: SearchService | None = None
     dj_search_service: SearchService | None = None
     download_service: object | None = None
@@ -280,6 +348,7 @@ def main() -> int:
         from services.download_service import DownloadService
         from services.filler_service import FillerService
         from services.player_service import PlayerService
+        from services.audio_output_service import AudioOutputService
 
         try:
             vlc_engine = VlcEngine()
@@ -288,7 +357,7 @@ def main() -> int:
             ytdlp_engine = YtdlpEngine()
             search_engine = SearchEngine(conn)
             search_engine_dj = SearchEngine(conn, track_type="dj")
-            download_service = DownloadService(ytdlp_engine, conn)
+            download_service = DownloadService(ytdlp_engine, conn, artist_registry)
             search_service = SearchService(search_engine, download_service)
             dj_search_service = SearchService(
                 search_engine_dj,
@@ -301,10 +370,19 @@ def main() -> int:
                 vlc_engine_secondary,
             )
             dj_player_service = DjPlayerService(vlc_dj_engine, ytdlp_engine)
+            vlc_prep_engine = VlcEngine(*config.PREP_VLC_ARGS)
+            prep_player_service = DjPlayerService(vlc_prep_engine, ytdlp_engine)
             filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
             filler_service = FillerService(filler_engine)
+            audio_output_service = AudioOutputService(vlc_engine._player)
+            for engine in (vlc_engine, vlc_dj_engine, vlc_prep_engine):
+                audio_output_service.register_engine(engine)
             main_window.wire_services(player_service, search_service, download_service)
             main_window.set_filler_service(filler_service)
+            main_window.set_audio_output_service(audio_output_service)
+            audio_output_service.apply_saved_device()
+            for device_id, label in audio_output_service.list_devices():
+                logger.info("Dispositivo audio VLC: %r → %s", device_id, label)
             dj_playback_flow.set_player(dj_player_service)
             dj_playback_flow.set_filler(filler_service)
             external_coordinator.set_player(player_service)
@@ -340,9 +418,32 @@ def main() -> int:
         download_service,
         player_service=dj_player_service,
     )
+    from services.library_transfer_service import LibraryTransferService
+
+    transfer_service = LibraryTransferService(conn, artist_registry)
+    metadata_refresh_engine = None
+    if not args.dry_run:
+        from engines.metadata_refresh_engine import MetadataRefreshEngine
+
+        metadata_refresh_engine = MetadataRefreshEngine(
+            conn,
+            ytdlp=ytdlp_engine,
+            artist_registry=artist_registry,
+        )
+    prep_window = PrepWindow(
+        library_service,
+        playlist_service,
+        metadata_refresh_engine=metadata_refresh_engine,
+        search_service=search_service,
+        download_service=download_service,
+        transfer_service=transfer_service,
+        player_service=prep_player_service,
+    )
     main_window.dj_console_toggle_requested.connect(
         lambda: _toggle_dj_console(dj_console_window)
     )
+    main_window.prep_toggle_requested.connect(lambda: _toggle_prep_window(prep_window))
+    prep_window.library_changed.connect(main_window.on_library_data_changed)
     dj_console_window.dj_filler_track_requested.connect(main_window.apply_dj_filler_track)
 
     main_window.show()
@@ -354,6 +455,12 @@ def main() -> int:
     if not args.dry_run and dj_player_service is not None:
         dj_player_service.bind_output_widget(dj_console_window.video_output_widget())
         dj_console_window.set_vlc_output_rebind(vlc_dj_engine.set_output_widget)
+    if not args.dry_run and prep_player_service is not None:
+        prep_output = prep_window.playback_window().video_output_widget()
+        prep_player_service.bind_output_widget(prep_output)
+        prep_window.configure_playback(
+            lambda widget: prep_player_service.bind_output_widget(widget)
+        )
 
     queue_service.queue_updated.connect(main_window.queue_widget().set_queue)
     external_coordinator.connect_signals(app, main_window.external_toggle_requested)
