@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from services.playlist_service import PlaylistService
     from services.player_service import PlayerService
     from services.search_service import SearchService
+    from services.update_service import ReleaseInfo, UpdateService
 from ui.filler_source_widget import FillerSourceWidget
 from ui.library_browse_window import LibraryBrowseWindow
 from ui.library_widget import LibraryWidget
@@ -96,6 +97,9 @@ class MainWindow(QMainWindow):
         self._filler: "FillerService | None" = None
         self._audio_output: "AudioOutputService | None" = None
         self._library_browse: LibraryBrowseWindow | None = None
+        self._update_service: "UpdateService | None" = None
+        self._update_manual_check = False
+        self._update_btn_default_text = "Aggiorna"
         self._pending_filler_youtube_id: str | None = None
         self._dry_run = dry_run
         self._shortcuts = ShortcutService()
@@ -168,6 +172,20 @@ class MainWindow(QMainWindow):
         self._audio_output_label.setVisible(True)
         self._refresh_audio_output_combo()
         service.device_changed.connect(self._sync_audio_output_combo)
+
+    def set_update_service(self, service: "UpdateService | None") -> None:
+        """Collega il controllo aggiornamenti online (Windows standalone)."""
+        self._update_service = service
+        visible = service is not None
+        self._update_btn.setVisible(visible)
+        if service is None:
+            return
+        service.update_available.connect(self._on_update_available)
+        service.check_failed.connect(self._on_update_check_failed)
+        service.up_to_date.connect(self._on_update_up_to_date)
+        service.download_progress.connect(self._on_update_download_progress)
+        service.download_completed.connect(self._on_update_download_completed)
+        service.download_failed.connect(self._on_update_download_failed)
 
     def apply_dj_filler_track(self, track: dict) -> None:
         """Imposta un brano DJ come sottofondo (da consolle DJ o picker)."""
@@ -308,6 +326,14 @@ class MainWindow(QMainWindow):
         self._prep_btn.setObjectName("secondaryButton")
         self._prep_btn.clicked.connect(self._on_prep_toggle)
         bar.addWidget(self._prep_btn)
+        self._update_btn = QPushButton("Aggiorna")
+        self._update_btn.setObjectName("secondaryButton")
+        self._update_btn.setToolTip(
+            "Scarica e installa l'ultima versione da GitHub (un click)"
+        )
+        self._update_btn.clicked.connect(self._on_update_clicked)
+        self._update_btn.setVisible(False)
+        bar.addWidget(self._update_btn)
         bar.addSpacing(12)
         self._audio_output_label = QLabel("Audio:")
         self._audio_output_label.setVisible(False)
@@ -682,6 +708,86 @@ class MainWindow(QMainWindow):
             )
             return
         self._library_browse.open_browse()
+
+    def _on_update_clicked(self) -> None:
+        """Un click: scarica e installa l'aggiornamento se disponibile."""
+        if self._update_service is None:
+            QMessageBox.information(
+                self,
+                "Aggiornamenti",
+                "Gli aggiornamenti online sono disponibili solo "
+                "sull'installazione Windows (KaraokeManager-Setup.exe).",
+            )
+            return
+        if self._update_service.is_busy:
+            return
+        pending = self._update_service.pending_release()
+        self._update_manual_check = pending is None
+        self._update_btn.setEnabled(False)
+        self._update_service.one_click_update()
+
+    def _on_update_available(self, release: "ReleaseInfo") -> None:
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText(f"Aggiorna a {release.version}")
+        self._update_btn.setToolTip(
+            "Clicca una volta per scaricare e installare la versione "
+            f"{release.version} (libreria e impostazioni restano invariate)."
+        )
+
+    def _reset_update_button(self) -> None:
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText(self._update_btn_default_text)
+        self._update_btn.setToolTip(
+            "Scarica e installa l'ultima versione da GitHub (un click)"
+        )
+
+    def _on_update_up_to_date(self) -> None:
+        self._reset_update_button()
+        if self._update_manual_check:
+            self._update_manual_check = False
+            QMessageBox.information(
+                self,
+                "Aggiornamenti",
+                f"KaraokeManager {config.APP_VERSION} è già aggiornato.",
+            )
+
+    def _on_update_check_failed(self, message: str) -> None:
+        self._update_manual_check = False
+        self._reset_update_button()
+        QMessageBox.warning(
+            self,
+            "Aggiornamenti",
+            "Impossibile verificare gli aggiornamenti.\n\n"
+            f"Dettaglio: {message}\n\n"
+            "Controlla la connessione Internet oppure riprova più tardi.",
+        )
+
+    def _on_update_download_progress(self, percent: int) -> None:
+        self._update_btn.setText(f"Aggiornamento {percent}%")
+
+    def _on_update_download_completed(self, setup_path: str) -> None:
+        if self._update_service is None:
+            return
+        self._update_btn.setText("Installazione…")
+        try:
+            self._update_service.launch_installer(setup_path)
+        except OSError as exc:
+            self._reset_update_button()
+            QMessageBox.critical(
+                self,
+                "Aggiornamento",
+                f"Impossibile avviare l'installer.\n\n{exc}",
+            )
+            return
+        QApplication.instance().quit()
+
+    def _on_update_download_failed(self, message: str) -> None:
+        self._reset_update_button()
+        QMessageBox.warning(
+            self,
+            "Download aggiornamento",
+            f"Download non riuscito.\n\n{message}",
+        )
 
     def _sync_mode_pills(self, mode: str) -> None:
         """Aggiorna le pill modalità nella titlebar."""

@@ -66,6 +66,22 @@ Output:
 
 Non serve Python, pip, VLC o ffmpeg separati: sono già inclusi nel pacchetto.
 
+### Aggiornamenti online (portatile / installazione Windows)
+
+Dall'**2.1** in poi, l'app installata con `KaraokeManager-Setup.exe`:
+
+1. All'avvio controlla GitHub (al massimo ogni 24 h).
+2. Se c'è una versione nuova, il pulsante diventa **Aggiorna a X.Y**.
+3. **Un solo click** → download, chiusura app, installazione silenziosa (libreria e impostazioni restano).
+
+**Prima installazione con aggiornamenti automatici:** se sul portatile hai ancora la 2.0, installa **una volta** `KaraokeManager-Setup.exe` della release **v2.1** (USB o download da GitHub). Da lì in poi basta il pulsante Aggiorna.
+
+Pubblicare una release:
+
+1. Allinea `APP_VERSION` in `config.py` e `build/installer.iss`.
+2. Commit, push, tag `v2.1.0` (o `v2.1`), push del tag.
+3. Il workflow `release-windows.yml` allega `KaraokeManager-Setup.exe` alla GitHub Release.
+
 Per saltare la creazione dell'installer: `.\build\build_windows.ps1 -SkipInstaller`
 
 Per VLC installato in percorso non standard: `.\build\build_windows.ps1 -VlcPath "D:\VLC"`

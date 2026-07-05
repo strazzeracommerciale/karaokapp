@@ -1,0 +1,44 @@
+# Release Windows — pubblica KaraokeManager-Setup.exe su GitHub Releases.
+#
+# Trigger: push tag v* (es. v2.0, v2.0.1)
+# Prerequisito: il tag deve puntare a un commit con APP_VERSION allineata in config.py
+
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y
+
+      - name: Install VLC
+        run: choco install vlc -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $env:VlcPath = "C:\Program Files\VideoLAN\VLC"
+          .\build\build_windows.ps1 -VlcPath $env:VlcPath
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/KaraokeManager-Setup.exe
+          generate_release_notes: true

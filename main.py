@@ -446,6 +446,14 @@ def main() -> int:
     prep_window.library_changed.connect(main_window.on_library_data_changed)
     dj_console_window.dj_filler_track_requested.connect(main_window.apply_dj_filler_track)
 
+    if sys.platform == "win32" and not args.dry_run:
+        from services.update_service import UpdateService, update_client_enabled
+
+        update_service = UpdateService()
+        main_window.set_update_service(update_service)
+        if update_client_enabled():
+            update_service.schedule_startup_check()
+
     main_window.show()
     app.processEvents()
 
