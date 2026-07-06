@@ -7,7 +7,12 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import config
-from services.update_service import ReleaseInfo, UpdateService, _UpdateCheckWorker
+from services.update_service import (
+    ReleaseInfo,
+    UpdateService,
+    _UpdateCheckWorker,
+    github_request_headers,
+)
 from utils.version_compare import is_newer_version, normalize_version_label, version_tuple
 
 
@@ -25,6 +30,7 @@ def test_release_info_from_api_payload() -> None:
         "body": "Novità",
         "assets": [
             {
+                "id": 42,
                 "name": "KaraokeManager-Setup.exe",
                 "browser_download_url": "https://example.com/setup.exe",
                 "size": 1024,
@@ -34,7 +40,16 @@ def test_release_info_from_api_payload() -> None:
     info = worker._release_to_info(release)
     assert info is not None
     assert info.version == "2.1"
+    assert info.asset_id == 42
     assert info.download_url.endswith("setup.exe")
+
+
+def test_github_request_headers_include_token(monkeypatch) -> None:
+    monkeypatch.setattr(config, "resolve_update_github_token", lambda: "ghp_test")
+    headers = github_request_headers()
+    assert headers["Authorization"] == "Bearer ghp_test"
+    asset_headers = github_request_headers(accept="application/octet-stream")
+    assert asset_headers["Accept"] == "application/octet-stream"
 
 
 def test_skipped_release_not_offered() -> None:

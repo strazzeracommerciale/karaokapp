@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-APP_VERSION: str = "2.1"
+APP_VERSION: str = "2.2"
 
 
 def _install_dir() -> Path:
@@ -89,6 +89,21 @@ UPDATE_CHECK_DELAY_MS: int = 8000
 UPDATE_CHECK_COOLDOWN_HOURS: int = 24
 UPDATE_SETTINGS_LAST_CHECK_KEY: str = "update/last_check_ts"
 UPDATE_SETTINGS_SKIP_VERSION_KEY: str = "update/skip_version"
+UPDATE_GITHUB_TOKEN_FILENAME: str = "github_update_token.txt"
+
+
+def resolve_update_github_token() -> str:
+    """Token read-only per API GitHub (repo privato). Env o file accanto all'installazione."""
+    env_token = _os.environ.get("KAROKAPP_GITHUB_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    token_path = INSTALL_DIR / UPDATE_GITHUB_TOKEN_FILENAME
+    if token_path.is_file():
+        try:
+            return token_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    return ""
 
 UI_THEME_SETTINGS_KEY: str = "ui/theme"
 UI_THEME_LIGHT: str = "light"
@@ -101,15 +116,17 @@ FILLER_FADE_MS: int = 2000
 FILLER_FADE_STEP_MS: int = 50
 
 if _sys.platform == "win32":
-    # Il filler usa un output audio separato (DirectSound) così il suo volume
-    # non muove la sessione WASAPI del karaoke nel mixer di Windows.
+    # DirectSound: sessione audio stabile durante resize/anteprima (set_hwnd non tocca l'aout).
+    # Il filler usa la stessa backend con --no-video per volume indipendente in mixer Windows.
+    KARAOKE_VLC_ARGS: tuple[str, ...] = ("--aout=directsound",)
+    DJ_VLC_ARGS: tuple[str, ...] = ("--aout=directsound",)
+    PREP_VLC_ARGS: tuple[str, ...] = ("--aout=directsound",)
     FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video", "--aout=directsound")
-    # Ascolto in Preparazione: output audio predefinito (WASAPI/mmdevice), come il player
-    # principale. DirectSound su Windows 11 spesso fallisce in silenzio (video sì, audio no).
-    PREP_VLC_ARGS: tuple[str, ...] = ()
 else:
-    FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video",)
+    KARAOKE_VLC_ARGS: tuple[str, ...] = ()
+    DJ_VLC_ARGS: tuple[str, ...] = ()
     PREP_VLC_ARGS: tuple[str, ...] = ()
+    FILLER_VLC_ARGS: tuple[str, ...] = ("--no-video",)
 
 if _sys.platform == "win32":
     _bundled_vlc = INSTALL_DIR / "vlc"

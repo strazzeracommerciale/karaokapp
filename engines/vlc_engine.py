@@ -37,15 +37,11 @@ class VlcEngine:
         self._output_widget: QWidget | None = None
         self._position_callback: Callable[[float], None] | None = None
         self._end_callback: Callable[[], None] | None = None
-        self._volume = 100
-        self._muted = False
-        self._audio_device_id = ""
         self._position_timer = QTimer()
         self._position_timer.setInterval(500)
         self._position_timer.timeout.connect(self._emit_position)
         event_manager = self._player.event_manager()
         event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_end_reached)
-        event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, self._on_playing)
 
     def clone(self) -> "VlcEngine":
         """Crea un secondo player VLC dedicato all'output video HDMI.
@@ -72,21 +68,17 @@ class VlcEngine:
     def set_output_widget(self, widget: QWidget) -> None:
         """Collega l'output video al widget PyQt6 (per piattaforma)."""
         self._output_widget = widget
-        was_playing = self.is_playing()
         if sys.platform == "darwin" and not widget.isVisible():
             logger.warning(
                 "set_output_widget su macOS prima di show(): "
                 "rinviato al prossimo ciclo eventi Qt"
             )
-            QTimer.singleShot(
-                0,
-                lambda: self._bind_output_widget(widget, refresh_audio=was_playing),
-            )
+            QTimer.singleShot(0, lambda: self._bind_output_widget(widget))
             return
-        self._bind_output_widget(widget, refresh_audio=was_playing)
+        self._bind_output_widget(widget)
 
-    def _bind_output_widget(self, widget: QWidget, *, refresh_audio: bool = False) -> None:
-        """Esegue il bind nativo HWND/NSObject/XWindow sul widget."""
+    def _bind_output_widget(self, widget: QWidget) -> None:
+        """Esegue il bind nativo HWND/NSObject/XWindow sul widget (solo video)."""
         if sys.platform == "darwin":
             self._player.set_nsobject(int(widget.winId()))
         elif sys.platform.startswith("linux"):
@@ -94,38 +86,6 @@ class VlcEngine:
         elif sys.platform == "win32":
             self._player.set_hwnd(int(widget.winId()))
         logger.debug("Output VLC collegato al widget")
-        if refresh_audio:
-            self._apply_audio_output_device()
-            self._schedule_audio_state()
-
-    def set_audio_output_device(self, device_id: str | None) -> None:
-        """Imposta il dispositivo di uscita audio (Windows mmdevice; '' = predefinito)."""
-        self._audio_device_id = "" if device_id is None else str(device_id)
-        self._apply_audio_output_device()
-
-    def _apply_audio_output_device(self) -> None:
-        """Applica il dispositivo audio scelto, indipendente dal monitor del video embed."""
-        if sys.platform != "win32":
-            return
-        try:
-            self._player.audio_output_device_set(None, self._audio_device_id)
-        except Exception as exc:  # noqa: BLE001 - dipende da libVLC locale
-            logger.warning(
-                "Impossibile impostare dispositivo audio %r: %s",
-                self._audio_device_id or "Predefinito",
-                exc,
-            )
-
-    def _apply_audio_state(self) -> None:
-        """Riapplica volume e mute (dopo bind HWND o su MediaPlayerPlaying)."""
-        if not self._muted:
-            self._player.audio_set_volume(self._volume)
-        self._player.audio_set_mute(self._muted)
-
-    def _schedule_audio_state(self) -> None:
-        """Ripetizioni brevi per superare race di inizializzazione aout su Windows."""
-        for delay_ms in (0, 100, 300):
-            QTimer.singleShot(delay_ms, self._apply_audio_state)
 
     def set_position_callback(self, callback: Callable[[float], None] | None) -> None:
         """Registra callback invocata periodicamente con posizione 0.0–1.0."""
@@ -156,10 +116,8 @@ class VlcEngine:
 
     def play(self) -> None:
         """Avvia la riproduzione e il timer di posizione."""
-        self._apply_audio_output_device()
         self._player.play()
         self._position_timer.start()
-        self._schedule_audio_state()
         logger.debug("Riproduzione avviata")
 
     def pause(self) -> None:
@@ -180,15 +138,12 @@ class VlcEngine:
 
     def set_mute(self, mute: bool) -> None:
         """Silenzia o riattiva l'audio di questo player VLC."""
-        self._muted = bool(mute)
-        self._player.audio_set_mute(self._muted)
+        self._player.audio_set_mute(bool(mute))
 
     def set_volume(self, volume: int) -> None:
         """Imposta il volume audio di questo player (0-100)."""
-        self._volume = max(0, min(100, int(volume)))
-        self._muted = False
-        self._player.audio_set_mute(False)
-        self._player.audio_set_volume(self._volume)
+        clamped = max(0, min(100, int(volume)))
+        self._player.audio_set_volume(clamped)
 
     def get_position(self) -> float:
         """Restituisce la posizione normalizzata 0.0–1.0."""
@@ -213,10 +168,6 @@ class VlcEngine:
         """Invoca il callback di posizione con il valore corrente."""
         if self._position_callback is not None:
             self._position_callback(self.get_position())
-
-    def _on_playing(self, _event: vlc.Event) -> None:
-        """Riapplica l'audio quando VLC conferma lo stato Playing."""
-        self._schedule_audio_state()
 
     def _on_end_reached(self, _event: vlc.Event) -> None:
         """Gestisce la fine naturale del brano."""

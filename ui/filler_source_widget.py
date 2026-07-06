@@ -74,7 +74,7 @@ class FillerSourceWidget(QWidget):
 
         self._sync_mode_controls()
 
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
 
 
@@ -156,13 +156,15 @@ class FillerSourceWidget(QWidget):
 
         self._volume_slider.setValue(30)
 
-        self._volume_slider.setMaximumWidth(120)
+        self._volume_slider.setMinimumWidth(72)
+
+        self._volume_slider.setMaximumWidth(140)
 
         self._volume_slider.valueChanged.connect(self.volume_changed.emit)
 
-        controls.addWidget(self._volume_slider)
+        controls.addWidget(self._volume_slider, stretch=1)
 
-        controls.addStretch()
+
 
         root.addLayout(controls)
 

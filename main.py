@@ -348,12 +348,11 @@ def main() -> int:
         from services.download_service import DownloadService
         from services.filler_service import FillerService
         from services.player_service import PlayerService
-        from services.audio_output_service import AudioOutputService
 
         try:
-            vlc_engine = VlcEngine()
+            vlc_engine = VlcEngine(*config.KARAOKE_VLC_ARGS)
             vlc_engine_secondary = vlc_engine.clone()
-            vlc_dj_engine = VlcEngine()
+            vlc_dj_engine = VlcEngine(*config.DJ_VLC_ARGS)
             ytdlp_engine = YtdlpEngine()
             search_engine = SearchEngine(conn)
             search_engine_dj = SearchEngine(conn, track_type="dj")
@@ -374,15 +373,8 @@ def main() -> int:
             prep_player_service = DjPlayerService(vlc_prep_engine, ytdlp_engine)
             filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
             filler_service = FillerService(filler_engine)
-            audio_output_service = AudioOutputService(vlc_engine._player)
-            for engine in (vlc_engine, vlc_dj_engine, vlc_prep_engine):
-                audio_output_service.register_engine(engine)
             main_window.wire_services(player_service, search_service, download_service)
             main_window.set_filler_service(filler_service)
-            main_window.set_audio_output_service(audio_output_service)
-            audio_output_service.apply_saved_device()
-            for device_id, label in audio_output_service.list_devices():
-                logger.info("Dispositivo audio VLC: %r → %s", device_id, label)
             dj_playback_flow.set_player(dj_player_service)
             dj_playback_flow.set_filler(filler_service)
             external_coordinator.set_player(player_service)

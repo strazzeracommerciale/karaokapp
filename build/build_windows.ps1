@@ -101,6 +101,12 @@ foreach ($dir in @("data", "media\downloads", "media\dj\downloads", "logs")) {
     New-Item -ItemType Directory -Force -Path (Join-Path $Dist $dir) | Out-Null
 }
 
+$updateToken = $env:KAROKAPP_GITHUB_TOKEN
+if ($updateToken) {
+    Set-Content -Path (Join-Path $Dist "github_update_token.txt") -Value $updateToken -NoNewline -Encoding ascii
+    Write-Host "  Token aggiornamenti GitHub incluso nel pacchetto."
+}
+
 Write-Host ""
 Write-Host "Build completata: $Dist"
 Write-Host "  Avvio test: .\dist\KaraokeManager\KaraokeManager.exe"

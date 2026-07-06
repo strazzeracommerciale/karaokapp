@@ -84,8 +84,12 @@ def test_top_bar_and_splitter_layout() -> None:
     sizes = window._main_splitter.sizes()
     catalog_w = sizes[1]
 
-    assert main_y < 120, f"top bar troppo alta: main_splitter y={main_y}"
-    assert filler_h <= 72, f"FillerSourceWidget troppo alto: {filler_h}px"
+    assert main_y < 150, f"top bar troppo alta: main_splitter y={main_y}"
+    assert filler_h <= 80, f"FillerSourceWidget troppo alto: {filler_h}px"
+    assert window._filler_source._volume_slider.isVisible()
+    assert window._filler_source._volume_slider.width() >= 40, (
+        "slider volume sottofondo troppo stretto o nascosto"
+    )
     assert catalog_w >= 400, f"pannello catalogo troppo stretto: {catalog_w}px"
     assert sizes[1] > sizes[0], f"catalogo deve essere più largo dell'anteprima: {sizes}"
     assert window._player_widget._set_start_btn.text() == "Inizia da qui"

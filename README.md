@@ -74,13 +74,16 @@ Dall'**2.1** in poi, l'app installata con `KaraokeManager-Setup.exe`:
 2. Se c'è una versione nuova, il pulsante diventa **Aggiorna a X.Y**.
 3. **Un solo click** → download, chiusura app, installazione silenziosa (libreria e impostazioni restano).
 
-**Prima installazione con aggiornamenti automatici:** se sul portatile hai ancora la 2.0, installa **una volta** `KaraokeManager-Setup.exe` della release **v2.1** (USB o download da GitHub). Da lì in poi basta il pulsante Aggiorna.
+**Repository privato:** crea un Personal Access Token (permesso **Contents: Read**), aggiungilo come secret GitHub Actions `KAROKAPP_UPDATE_TOKEN` — la build release lo include in `github_update_token.txt` nel pacchetto. In alternativa, copia manualmente quel file nella cartella di installazione.
+
+**Prima installazione con aggiornamenti automatici:** se sul portatile hai ancora la 2.0, installa **una volta** `KaraokeManager-Setup.exe` della release **v2.1** o superiore (USB o download da GitHub). Da lì in poi basta il pulsante Aggiorna.
 
 Pubblicare una release:
 
 1. Allinea `APP_VERSION` in `config.py` e `build/installer.iss`.
-2. Commit, push, tag `v2.1.0` (o `v2.1`), push del tag.
-3. Il workflow `release-windows.yml` allega `KaraokeManager-Setup.exe` alla GitHub Release.
+2. Commit, push, tag `v2.2.0` (o `v2.2`), push del tag.
+3. Imposta il secret `KAROKAPP_UPDATE_TOKEN` nel repo (repo privato).
+4. Il workflow `release-windows.yml` allega `KaraokeManager-Setup.exe` alla GitHub Release.
 
 Per saltare la creazione dell'installer: `.\build\build_windows.ps1 -SkipInstaller`
 

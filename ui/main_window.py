@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QDialog,
-    QComboBox,
 )
 
 import config
@@ -42,7 +41,6 @@ from services.shortcut_service import (
 )
 
 if TYPE_CHECKING:
-    from services.audio_output_service import AudioOutputService
     from services.download_service import DownloadService
     from services.filler_service import FillerService
     from services.library_service import LibraryService
@@ -95,7 +93,6 @@ class MainWindow(QMainWindow):
         self._playlist = playlist_service
         self._theme_service = theme_service
         self._filler: "FillerService | None" = None
-        self._audio_output: "AudioOutputService | None" = None
         self._library_browse: LibraryBrowseWindow | None = None
         self._update_service: "UpdateService | None" = None
         self._update_manual_check = False
@@ -161,18 +158,6 @@ class MainWindow(QMainWindow):
         self._refresh_filler_playlists()
         self._sync_filler_widget_from_service()
 
-    def set_audio_output_service(self, service: "AudioOutputService | None") -> None:
-        """Collega il selettore uscita audio (solo con VLC attivo)."""
-        self._audio_output = service
-        if service is None:
-            self._audio_output_combo.setVisible(False)
-            self._audio_output_label.setVisible(False)
-            return
-        self._audio_output_combo.setVisible(True)
-        self._audio_output_label.setVisible(True)
-        self._refresh_audio_output_combo()
-        service.device_changed.connect(self._sync_audio_output_combo)
-
     def set_update_service(self, service: "UpdateService | None") -> None:
         """Collega il controllo aggiornamenti online (Windows standalone)."""
         self._update_service = service
@@ -214,7 +199,23 @@ class MainWindow(QMainWindow):
         root.setSpacing(4)
         self._top_bar = QWidget()
         self._top_bar.setObjectName("topBar")
-        self._build_top_bar(QHBoxLayout(self._top_bar))
+        top_layout = QVBoxLayout(self._top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(4)
+        tools_row = QHBoxLayout()
+        tools_row.setContentsMargins(0, 0, 0, 0)
+        self._build_tools_row(tools_row)
+        top_layout.addLayout(tools_row)
+        filler_row = QHBoxLayout()
+        filler_row.setContentsMargins(0, 0, 0, 0)
+        self._filler_source = FillerSourceWidget()
+        self._filler_source.choose_requested.connect(self._on_filler_choose)
+        self._filler_source.dj_playlist_selected.connect(self._on_filler_dj_playlist_selected)
+        self._filler_source.shuffle_toggled.connect(self._on_filler_shuffle_toggled)
+        self._filler_source.enabled_toggled.connect(self._on_filler_enabled)
+        self._filler_source.volume_changed.connect(self._on_filler_volume)
+        filler_row.addWidget(self._filler_source, stretch=1)
+        top_layout.addLayout(filler_row)
         root.addWidget(self._top_bar, stretch=0)
 
         self._video_output = VideoOutputWidget()
@@ -293,8 +294,8 @@ class MainWindow(QMainWindow):
         self._saved_main_sizes: list[int] | None = None
         self._splitters_initialized = False
 
-    def _build_top_bar(self, bar: QHBoxLayout) -> None:
-        """Barra superiore: modalità, consolle DJ, monitor esterno e sottofondo."""
+    def _build_tools_row(self, bar: QHBoxLayout) -> None:
+        """Prima riga barra superiore: modalità, strumenti e monitor esterno."""
         bar.setContentsMargins(0, 0, 0, 0)
         self._mode_karaoke_btn = QPushButton("Karaoke")
         self._mode_karaoke_btn.setObjectName("modeToggle")
@@ -335,20 +336,6 @@ class MainWindow(QMainWindow):
         self._update_btn.setVisible(False)
         bar.addWidget(self._update_btn)
         bar.addSpacing(12)
-        self._audio_output_label = QLabel("Audio:")
-        self._audio_output_label.setVisible(False)
-        bar.addWidget(self._audio_output_label)
-        self._audio_output_combo = QComboBox()
-        self._audio_output_combo.setMinimumWidth(180)
-        self._audio_output_combo.setVisible(False)
-        self._audio_output_combo.setToolTip(
-            "Dispositivo di uscita audio per karaoke, DJ e preparazione.\n"
-            "Se senti il segnale nel mixer Windows ma non dagli altoparlanti,\n"
-            "scegli gli speaker del PC (non HDMI / Audio remoto)."
-        )
-        self._audio_output_combo.currentIndexChanged.connect(self._on_audio_output_changed)
-        bar.addWidget(self._audio_output_combo)
-        bar.addSpacing(12)
         self._external_available = False
         self._external_btn = QPushButton("Monitor esterno: OFF")
         self._external_btn.setCheckable(True)
@@ -357,13 +344,6 @@ class MainWindow(QMainWindow):
         self._external_btn.toggled.connect(self._on_external_toggled)
         bar.addWidget(self._external_btn)
         bar.addStretch()
-        self._filler_source = FillerSourceWidget()
-        self._filler_source.choose_requested.connect(self._on_filler_choose)
-        self._filler_source.dj_playlist_selected.connect(self._on_filler_dj_playlist_selected)
-        self._filler_source.shuffle_toggled.connect(self._on_filler_shuffle_toggled)
-        self._filler_source.enabled_toggled.connect(self._on_filler_enabled)
-        self._filler_source.volume_changed.connect(self._on_filler_volume)
-        bar.addWidget(self._filler_source)
 
     def showEvent(self, event: QShowEvent) -> None:
         """Applica le dimensioni iniziali degli splitter al primo show."""
@@ -847,40 +827,6 @@ class MainWindow(QMainWindow):
         """Aggiorna il volume di riproduzione."""
         if self._player is not None:
             self._player.set_volume(value)
-
-    def _refresh_audio_output_combo(self) -> None:
-        """Popola il menu dispositivi audio da libVLC."""
-        if self._audio_output is None:
-            return
-        current = self._audio_output.current_device_id()
-        self._audio_output_combo.blockSignals(True)
-        self._audio_output_combo.clear()
-        selected_index = 0
-        for index, (device_id, label) in enumerate(self._audio_output.list_devices()):
-            self._audio_output_combo.addItem(label, device_id)
-            if device_id == current:
-                selected_index = index
-        self._audio_output_combo.setCurrentIndex(selected_index)
-        self._audio_output_combo.blockSignals(False)
-
-    def _sync_audio_output_combo(self, device_id: str) -> None:
-        """Allinea la combo al device corrente senza riemettere il cambio."""
-        for index in range(self._audio_output_combo.count()):
-            if self._audio_output_combo.itemData(index) == device_id:
-                if self._audio_output_combo.currentIndex() != index:
-                    self._audio_output_combo.blockSignals(True)
-                    self._audio_output_combo.setCurrentIndex(index)
-                    self._audio_output_combo.blockSignals(False)
-                return
-
-    def _on_audio_output_changed(self, _index: int) -> None:
-        """Persiste la scelta del dispositivo di uscita audio."""
-        if self._audio_output is None:
-            return
-        device_id = self._audio_output_combo.currentData()
-        if device_id is None:
-            device_id = ""
-        self._audio_output.set_device_id(str(device_id))
 
     def set_external_available(self, available: bool) -> None:
         """Abilita il pulsante solo se è presente un secondo schermo."""

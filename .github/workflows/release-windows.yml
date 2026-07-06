@@ -33,6 +33,8 @@ jobs:
 
       - name: Build installer
         shell: pwsh
+        env:
+          KAROKAPP_GITHUB_TOKEN: ${{ secrets.KAROKAPP_UPDATE_TOKEN }}
         run: |
           $env:VlcPath = "C:\Program Files\VideoLAN\VLC"
           .\build\build_windows.ps1 -VlcPath $env:VlcPath

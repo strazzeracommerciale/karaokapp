@@ -29,11 +29,44 @@ class ReleaseInfo:
     notes: str
     download_url: str
     download_size: int
+    asset_id: int = 0
 
 
 def update_client_enabled() -> bool:
     """Aggiornamenti online solo su installazione Windows PyInstaller."""
     return sys.platform == "win32" and getattr(sys, "frozen", False)
+
+
+def github_request_headers(*, accept: str = "application/vnd.github+json") -> dict[str, str]:
+    """Intestazioni HTTP per l'API GitHub, con Bearer token se configurato."""
+    headers = {
+        "User-Agent": config.UPDATE_USER_AGENT,
+        "Accept": accept,
+    }
+    token = config.resolve_update_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _format_github_http_error(exc: urllib.error.HTTPError) -> str:
+    if exc.code == 404:
+        if config.resolve_update_github_token():
+            return (
+                "Release non trovata su GitHub. Verifica che esista un tag con "
+                f"{config.UPDATE_INSTALLER_ASSET!r} allegato."
+            )
+        return (
+            "Repository GitHub non raggiungibile (404). Se il repo è privato, "
+            "serve il file github_update_token.txt nella cartella di installazione "
+            "oppure la variabile KAROKAPP_GITHUB_TOKEN."
+        )
+    if exc.code in (401, 403):
+        return (
+            "Accesso GitHub negato: token mancante, scaduto o senza permesso "
+            "Contents: Read sul repository."
+        )
+    return f"HTTP {exc.code}: {exc.reason}"
 
 
 class _UpdateCheckWorker(QThread):
@@ -62,18 +95,15 @@ class _UpdateCheckWorker(QThread):
                 self.completed.emit(None)
                 return
             self.completed.emit(info)
+        except urllib.error.HTTPError as exc:
+            logger.exception("Controllo aggiornamenti fallito (HTTP)")
+            self.failed.emit(_format_github_http_error(exc))
         except Exception as exc:  # noqa: BLE001 - propagato alla UI
             logger.exception("Controllo aggiornamenti fallito")
             self.failed.emit(str(exc))
 
     def _api_request(self, url: str) -> dict | list:
-        request = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": config.UPDATE_USER_AGENT,
-                "Accept": "application/vnd.github+json",
-            },
-        )
+        request = urllib.request.Request(url, headers=github_request_headers())
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
 
@@ -101,14 +131,16 @@ class _UpdateCheckWorker(QThread):
         assets = release.get("assets") or []
         download_url = ""
         download_size = 0
+        asset_id = 0
         for asset in assets:
             if not isinstance(asset, dict):
                 continue
             if asset.get("name") == self._asset_name:
                 download_url = str(asset.get("browser_download_url") or "")
                 download_size = int(asset.get("size") or 0)
+                asset_id = int(asset.get("id") or 0)
                 break
-        if not download_url:
+        if not download_url and asset_id <= 0:
             logger.warning(
                 "Release %s senza asset %r", tag, self._asset_name
             )
@@ -120,6 +152,7 @@ class _UpdateCheckWorker(QThread):
             notes=notes,
             download_url=download_url,
             download_size=download_size,
+            asset_id=asset_id,
         )
 
 
@@ -130,16 +163,24 @@ class _UpdateDownloadWorker(QThread):
     completed = pyqtSignal(str)
     failed = pyqtSignal(str)
 
-    def __init__(self, release: ReleaseInfo, destination: Path) -> None:
+    def __init__(self, repo: str, release: ReleaseInfo, destination: Path) -> None:
         super().__init__()
+        self._repo = repo
         self._release = release
         self._destination = destination
 
     def run(self) -> None:
         try:
+            if self._release.asset_id > 0:
+                url = (
+                    f"https://api.github.com/repos/{self._repo}/releases/assets/"
+                    f"{self._release.asset_id}"
+                )
+            else:
+                url = self._release.download_url
             request = urllib.request.Request(
-                self._release.download_url,
-                headers={"User-Agent": config.UPDATE_USER_AGENT},
+                url,
+                headers=github_request_headers(accept="application/octet-stream"),
             )
             with urllib.request.urlopen(request, timeout=300) as response:
                 total = int(response.headers.get("Content-Length") or 0)
@@ -160,6 +201,9 @@ class _UpdateDownloadWorker(QThread):
                             self.progress.emit(percent)
                 self.progress.emit(100)
             self.completed.emit(str(self._destination))
+        except urllib.error.HTTPError as exc:
+            logger.exception("Download aggiornamento fallito (HTTP)")
+            self.failed.emit(_format_github_http_error(exc))
         except Exception as exc:  # noqa: BLE001
             logger.exception("Download aggiornamento fallito")
             self.failed.emit(str(exc))
@@ -242,7 +286,11 @@ class UpdateService(QObject):
                 destination.unlink()
             except OSError:
                 pass
-        self._download_worker = _UpdateDownloadWorker(release, destination)
+        self._download_worker = _UpdateDownloadWorker(
+            config.UPDATE_GITHUB_REPO,
+            release,
+            destination,
+        )
         self._download_worker.progress.connect(self.download_progress.emit)
         self._download_worker.completed.connect(self._on_download_completed)
         self._download_worker.failed.connect(self._on_download_failed)

@@ -9,18 +9,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from services.audio_output_service import AudioOutputService
 
 
-def test_set_device_id_updates_engines() -> None:
-    """Il cambio dispositivo viene propagato ai motori registrati."""
+def test_set_device_id_persists_without_engine_rebind() -> None:
+    """Con DirectSound il cambio dispositivo persiste ma non riapre i motori VLC."""
     probe = MagicMock()
     engine = MagicMock()
-    service = AudioOutputService(probe, settings=MagicMock())
+    settings = MagicMock()
+    service = AudioOutputService(probe, settings=settings)
     service.register_engine(engine)
     service.set_device_id("device-a")
-    engine.set_audio_output_device.assert_called_with("device-a")
-    service.set_device_id("device-a")
-    assert engine.set_audio_output_device.call_count == 2
+    settings.setValue.assert_called_once()
+    engine.set_audio_output_device.assert_not_called()
 
 
 if __name__ == "__main__":
-    test_set_device_id_updates_engines()
+    test_set_device_id_persists_without_engine_rebind()
     print("OK")

@@ -3,7 +3,7 @@
 ;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" build\installer.iss
 
 #define MyAppName "KaraokeManager"
-#define MyAppVersion "2.1"
+#define MyAppVersion "2.2"
 #define MyAppPublisher "KaraokeManager"
 #define MyAppExeName "KaraokeManager.exe"
 

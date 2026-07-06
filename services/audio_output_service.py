@@ -51,10 +51,9 @@ class AudioOutputService(QObject):
         self._device_id = "" if saved is None else str(saved)
 
     def register_engine(self, engine: "VlcEngine") -> None:
-        """Registra un motore VLC da aggiornare al cambio dispositivo."""
+        """Registra un motore VLC (compatibilità; DirectSound non usa device ID)."""
         if engine not in self._engines:
             self._engines.append(engine)
-        engine.set_audio_output_device(self._device_id)
 
     def list_devices(self) -> list[tuple[str, str]]:
         """Restituisce (device_id, etichetta) per il menu a tendina."""
@@ -80,12 +79,9 @@ class AudioOutputService(QObject):
             return
         self._device_id = normalized
         self._settings.setValue(config.AUDIO_OUTPUT_DEVICE_SETTINGS_KEY, normalized)
-        for engine in self._engines:
-            engine.set_audio_output_device(normalized)
         logger.info("Uscita audio VLC impostata su: %r", normalized or "Predefinito")
         self.device_changed.emit(normalized)
 
     def apply_saved_device(self) -> None:
-        """Riapplica il dispositivo salvato (utile dopo il wiring in main)."""
-        for engine in self._engines:
-            engine.set_audio_output_device(self._device_id)
+        """Riapplica il dispositivo salvato (no-op con DirectSound)."""
+        return

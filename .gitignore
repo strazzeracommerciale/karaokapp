@@ -10,6 +10,7 @@ __pycache__/
 *.db-wal
 karaoke_backup_*.db
 .env
+github_update_token.txt
 *.egg-info/
 dist/
 build/KaraokeManager/
