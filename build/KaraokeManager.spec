@@ -37,13 +37,24 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[str(ROOT / "build" / "runtime_hook_windows.py")],
-    excludes=[],
+    runtime_hooks=[
+        str(ROOT / "build" / "runtime_hook_win_isolate.py"),
+        str(ROOT / "build" / "runtime_hook_windows.py"),
+    ],
+    excludes=[
+        "multiprocessing",
+        "multiprocessing.pool",
+        "multiprocessing.popen_spawn_win32",
+        "multiprocessing.popen_fork",
+        "multiprocessing.popen_spawn_posix",
+    ],
     win_no_prefer_redirects=False,
-    win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+# pyi_rth_multiprocessing carica socket e può prendere python3XX.dll dal PATH di sistema.
+a.scripts = [entry for entry in a.scripts if "pyi_rth_multiprocessing" not in entry[0]]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

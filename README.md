@@ -58,6 +58,10 @@ Output:
 | `dist\KaraokeManager\` | Versione portabile (copiabile su chiavetta) |
 | `dist\KaraokeManager-Setup.exe` | Installer per l'utente finale (se Inno Setup è installato) |
 
+La dimensione (~200–250 MB) è normale: include **PyQt6**, **yt-dlp**, **ffmpeg** e i **plugin VLC** per riprodurre quasi tutti i formati video. L’installer può impiegare circa un minuto prima della prima finestra mentre decomprime l’archivio.
+
+**Errore `python313.dll conflicts` all’avvio:** di solito c’è un’altra installazione Python sul PC che interferisce. Usa un installer **2.2.1+** (build con isolamento DLL) oppure, come workaround, rimuovi temporaneamente Python dal PATH di sistema.
+
 ### Sul PC di destinazione
 
 1. Eseguire `KaraokeManager-Setup.exe` (oppure copiare la cartella `KaraokeManager`).

@@ -25,6 +25,16 @@ Set-Location $Root
 
 Write-Host "==> KaraokeManager build (root: $Root)"
 
+$pyVersion = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+Write-Host "  Python $pyVersion"
+if ($pyVersion -ne "3.12") {
+    Write-Warning @"
+Per release ufficiali usa Python 3.12 (come GitHub Actions).
+Python 3.13 sul PC di build può generare exe che falliscono su portatili con un'altra Python 3.13 nel PATH.
+Consiglio: py -3.12 -m venv .venv-build; .\.venv-build\Scripts\Activate.ps1; poi rilancia questo script.
+"@
+}
+
 Write-Host "==> Installazione dipendenze Python..."
 python -m pip install --upgrade pip | Out-Null
 python -m pip install -r requirements.txt -r requirements-dev.txt

@@ -3,7 +3,7 @@
 ;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" build\installer.iss
 
 #define MyAppName "KaraokeManager"
-#define MyAppVersion "2.2"
+#define MyAppVersion "2.2.1"
 #define MyAppPublisher "KaraokeManager"
 #define MyAppExeName "KaraokeManager.exe"
 
@@ -17,8 +17,8 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
 OutputBaseFilename=KaraokeManager-Setup
-Compression=lzma2
-SolidCompression=yes
+Compression=lzma2/fast
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -33,7 +33,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\KaraokeManager\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "..\dist\KaraokeManager\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs; Excludes: "logs\*,*.log"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
