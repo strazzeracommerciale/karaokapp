@@ -38,6 +38,10 @@ jobs:
         run: |
           $env:VlcPath = "C:\Program Files\VideoLAN\VLC"
           .\build\build_windows.ps1 -VlcPath $env:VlcPath
+          $exe = "dist\KaraokeManager\KaraokeManager.exe"
+          if (-not (Test-Path $exe)) { throw "Manca $exe dopo build" }
+          $p = Start-Process -FilePath $exe -ArgumentList "--dry-run","--auto-close-ms","4000" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Smoke test avvio fallito (exit $($p.ExitCode))" }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -39,6 +39,11 @@ def _parse_args() -> argparse.Namespace:
         help="Avvia UI senza VLC né yt-dlp",
     )
     parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Mostra console di diagnostica (installazione Windows)",
+    )
+    parser.add_argument(
         "--screen",
         type=int,
         default=None,

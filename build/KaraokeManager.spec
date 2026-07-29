@@ -38,16 +38,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[
+        str(ROOT / "build" / "runtime_hook_startup.py"),
         str(ROOT / "build" / "runtime_hook_win_isolate.py"),
         str(ROOT / "build" / "runtime_hook_windows.py"),
     ],
-    excludes=[
-        "multiprocessing",
-        "multiprocessing.pool",
-        "multiprocessing.popen_spawn_win32",
-        "multiprocessing.popen_fork",
-        "multiprocessing.popen_spawn_posix",
-    ],
+    excludes=[],
     win_no_prefer_redirects=False,
     cipher=block_cipher,
     noarchive=False,

@@ -8,12 +8,13 @@ def _is_system_python_dir(path: str) -> bool:
     lower = path.lower().replace("/", "\\")
     if "windowsapps" in lower:
         return True
-    if "\\python3" in lower and (
-        lower.endswith("\\scripts") or "\\python3" in lower.split("\\")[-1]
-    ):
+    if "\\pyenv\\" in lower or "\\conda\\" in lower or "\\miniconda" in lower:
         return True
-    for token in ("\\python313\\", "\\python312\\", "\\python311\\"):
-        if token in lower:
+    parts = [p for p in lower.split("\\") if p]
+    for part in parts:
+        if part.startswith("python3") and part[6:].isdigit():
+            return True
+        if part == "scripts" and any(p.startswith("python") for p in parts):
             return True
     return False
 
