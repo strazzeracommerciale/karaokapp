@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 def _base_ydl_opts() -> dict:
     """Opzioni yt-dlp comuni, incluso ffmpeg bundled nell'installer Windows."""
-    opts: dict = {"quiet": True, "no_warnings": True}
+    # YouTube risponde spesso 403 sugli URL dei flussi se la richiesta esce in IPv6.
+    opts: dict = {"quiet": True, "no_warnings": True, "source_address": "0.0.0.0"}
     ffmpeg = Path(config.FFMPEG_BIN)
     if ffmpeg.is_file():
         opts["ffmpeg_location"] = str(ffmpeg.parent)

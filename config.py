@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-APP_VERSION: str = "2.2.2"
+APP_VERSION: str = "2.2.3"
 
 
 def _install_dir() -> Path:
@@ -82,7 +82,7 @@ LIBRARY_BROWSE_SETTINGS_GEOMETRY_KEY: str = "library_browse/geometry"
 AUDIO_OUTPUT_DEVICE_SETTINGS_KEY: str = "audio/output_device_id"
 
 # Aggiornamenti online (GitHub Releases, solo Windows standalone)
-UPDATE_GITHUB_REPO: str = "strazzeracommerciale/karokapp"
+UPDATE_GITHUB_REPO: str = "strazzeracommerciale/karaokapp"
 UPDATE_INSTALLER_ASSET: str = "KaraokeManager-Setup.exe"
 UPDATE_USER_AGENT: str = f"{APP_NAME}/{APP_VERSION}"
 UPDATE_CHECK_DELAY_MS: int = 8000

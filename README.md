@@ -78,15 +78,15 @@ Dall'**2.1** in poi, l'app installata con `KaraokeManager-Setup.exe`:
 2. Se c'è una versione nuova, il pulsante diventa **Aggiorna a X.Y**.
 3. **Un solo click** → download, chiusura app, installazione silenziosa (libreria e impostazioni restano).
 
-**Repository privato:** crea un Personal Access Token (permesso **Contents: Read**), aggiungilo come secret GitHub Actions `KAROKAPP_UPDATE_TOKEN` — la build release lo include in `github_update_token.txt` nel pacchetto. In alternativa, copia manualmente quel file nella cartella di installazione.
+Il repository degli aggiornamenti è **https://github.com/strazzeracommerciale/karaokapp** (pubblico). L'app non ha bisogno di un token per leggere le release. Se il repo viene reso privato, serve un Personal Access Token con permesso **Contents: Read** nel secret GitHub Actions `KAROKAPP_UPDATE_TOKEN`: la build lo include in `github_update_token.txt`.
 
-**Prima installazione con aggiornamenti automatici:** se sul portatile hai ancora la 2.0, installa **una volta** `KaraokeManager-Setup.exe` della release **v2.1** o superiore (USB o download da GitHub). Da lì in poi basta il pulsante Aggiorna.
+**Prima installazione della 2.2.3:** le versioni precedenti cercavano il repository con il nome sbagliato (`karokapp`) e mostravano errore 404. Installa **una volta** `KaraokeManager-Setup.exe` della release **v2.2.3**. Da lì il pulsante Aggiorna funziona da solo.
 
 Pubblicare una release:
 
 1. Allinea `APP_VERSION` in `config.py` e `build/installer.iss`.
-2. Commit, push, tag `v2.2.0` (o `v2.2`), push del tag.
-3. Imposta il secret `KAROKAPP_UPDATE_TOKEN` nel repo (repo privato).
+2. Commit, push, tag `v2.2.3` (o successivo), push del tag.
+3. Se il repo è privato, imposta il secret `KAROKAPP_UPDATE_TOKEN`.
 4. Il workflow `release-windows.yml` allega `KaraokeManager-Setup.exe` alla GitHub Release.
 
 Per saltare la creazione dell'installer: `.\build\build_windows.ps1 -SkipInstaller`

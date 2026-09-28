@@ -20,7 +20,7 @@ Per capire il processore: **Menu Apple** → **Informazioni su questo Mac** → 
 ## Passo 1 — Apri GitHub Actions
 
 1. Apri il browser (Safari, Chrome, …)
-2. Vai a: **https://github.com/strazzeracommerciale/karokapp/actions**
+2. Vai a: **https://github.com/strazzeracommerciale/karaokapp/actions**
 3. Accedi con il tuo account GitHub (se richiesto)
 
 ---

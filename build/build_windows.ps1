@@ -48,14 +48,33 @@ if (-not (Test-Path (Join-Path $Dist "KaraokeManager.exe"))) {
 }
 
 Write-Host "==> Copia ffmpeg..."
-$ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+function Resolve-RealFfmpegTool([string]$Name) {
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $cmd) { return $null }
+    $path = $cmd.Source
+    $item = Get-Item $path
+    # Gli alias WinGet/WindowsApps sono stub da poche centinaia di KB: copiati da soli
+    # non trovano il binario vero e yt-dlp segnala "ffmpeg is not installed".
+    if ($item.Length -lt 20MB) {
+        $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+        $real = Get-ChildItem $wingetRoot -Recurse -Filter "$Name.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -ge 20MB } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+        if ($real) { return $real.FullName }
+        throw "$Name nel PATH è uno stub ($($item.Length) byte): $path. Installa Gyan.FFmpeg e usa il binario reale."
+    }
+    return $path
+}
+$ffmpeg = Resolve-RealFfmpegTool "ffmpeg"
 if (-not $ffmpeg) {
     throw "ffmpeg non trovato nel PATH. Installalo con: winget install Gyan.FFmpeg"
 }
 $binDir = Join-Path $Dist "bin"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 Copy-Item -Force $ffmpeg (Join-Path $binDir "ffmpeg.exe")
-$ffprobe = (Get-Command ffprobe -ErrorAction SilentlyContinue).Source
+Write-Host "  ffmpeg: $ffmpeg ($([math]::Round((Get-Item $ffmpeg).Length / 1MB, 1)) MB)"
+$ffprobe = Resolve-RealFfmpegTool "ffprobe"
 if ($ffprobe) {
     Copy-Item -Force $ffprobe (Join-Path $binDir "ffprobe.exe")
 } else {
