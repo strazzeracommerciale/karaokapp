@@ -22,6 +22,12 @@ import config
 
 logger = logging.getLogger(__name__)
 
+# YouTube rifiuta spesso il download del flusso se lo User-Agent non è un browser.
+_HTTP_VLC_ARGS = (
+    "--http-referrer=https://www.youtube.com/",
+    "--http-user-agent=Mozilla/5.0",
+)
+
 
 class VlcEngine:
     """Motore di riproduzione basato su libVLC con callback di posizione."""
@@ -32,7 +38,7 @@ class VlcEngine:
         `extra_args` permette opzioni libVLC aggiuntive (es. "--no-video" per un
         player solo-audio usato come sottofondo, così VLC non apre una finestra video).
         """
-        self._instance = vlc.Instance("--no-video-title-show", *extra_args)
+        self._instance = vlc.Instance("--no-video-title-show", *_HTTP_VLC_ARGS, *extra_args)
         self._player = self._instance.media_player_new()
         self._output_widget: QWidget | None = None
         self._position_callback: Callable[[float], None] | None = None
@@ -56,6 +62,7 @@ class VlcEngine:
         secondary._instance = vlc.Instance(
             "--no-video-title-show",
             "--no-audio",
+            *_HTTP_VLC_ARGS,
         )
         secondary._player = secondary._instance.media_player_new()
         secondary._output_widget = None
@@ -95,7 +102,13 @@ class VlcEngine:
         """Registra callback invocata al termine naturale del brano."""
         self._end_callback = callback
 
-    def load(self, path_or_url: str, loop: bool = False, start_time: float = 0.0) -> None:
+    def load(
+        self,
+        path_or_url: str,
+        loop: bool = False,
+        start_time: float = 0.0,
+        audio_url: str | None = None,
+    ) -> None:
         """Carica un file locale o URL nel player.
 
         Con `loop=True` libVLC ripete l'input all'infinito (usato dal sottofondo),
@@ -103,8 +116,12 @@ class VlcEngine:
         Con `start_time > 0` la riproduzione parte direttamente da quell'offset in
         secondi (salta l'intro dei file locali), in modo affidabile senza dover
         eseguire una seek manuale subito dopo il play.
+        `audio_url` aggancia un flusso audio separato quando YouTube non offre
+        un file unico con audio e video.
         """
         media = self._instance.media_new(path_or_url)
+        if audio_url:
+            media.slaves_add(vlc.MediaSlaveType.audio, 4, audio_url)
         if loop:
             media.add_option("input-repeat=65535")
         if start_time > 0:

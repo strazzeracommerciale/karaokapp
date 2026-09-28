@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 APP_NAME: str = "KaraokeManager"
-APP_VERSION: str = "2.2.4"
+APP_VERSION: str = "2.2.5"
 
 
 def _install_dir() -> Path:

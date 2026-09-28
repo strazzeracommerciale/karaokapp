@@ -43,7 +43,7 @@ class DjPlayerService(QObject):
 
     def play_track(self, track: dict) -> None:
         """Carica e riproduce un brano nel player DJ."""
-        path = self._resolve_path(track)
+        path, audio_url = self._resolve_playback(track)
         if not path:
             logger.error("Track DJ senza path o stream_url: %s", track.get("title"))
             self.track_failed.emit(track, self._resolve_failure_reason(track))
@@ -54,7 +54,7 @@ class DjPlayerService(QObject):
         self._current_path = path
         self._vlc.set_end_callback(self._on_playback_ended)
         self._vlc.set_mute(False)
-        self._vlc.load(path)
+        self._vlc.load(path, audio_url=audio_url)
         self._vlc.play()
         self._vlc.set_mute(False)
         self._vlc.set_volume(self._volume)
@@ -97,24 +97,24 @@ class DjPlayerService(QObject):
             "duration": duration,
         }
 
-    def _resolve_path(self, track: dict) -> str:
-        """Restituisce il file locale se presente, altrimenti uno stream URL YouTube."""
+    def _resolve_playback(self, track: dict) -> tuple[str, str | None]:
+        """File locale, oppure URL video e eventuale URL audio separato."""
         local_path = track.get("local_path", "")
         if local_path and Path(local_path).exists():
-            return local_path
+            return local_path, None
         stream_url = track.get("stream_url", "") or ""
         if stream_url:
-            return stream_url
+            return stream_url, track.get("audio_url") or None
         if track.get("source") == "youtube" and self._ytdlp is not None:
             youtube_id = track.get("youtube_id", "")
             logger.info("Risoluzione stream URL DJ per %s", youtube_id)
             try:
-                return self._ytdlp.get_stream_url(youtube_id)
+                return self._ytdlp.resolve_stream(youtube_id)
             except Exception as exc:  # noqa: BLE001 - errore di rete, log e abort
                 logger.error("Stream URL DJ non risolvibile: %s", exc)
                 self._last_resolve_error = str(exc)
-                return ""
-        return ""
+                return "", None
+        return "", None
 
     def _resolve_failure_reason(self, track: dict) -> str:
         """Messaggio d'errore leggibile quando la riproduzione non parte."""

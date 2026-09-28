@@ -10,6 +10,43 @@ import config
 
 logger = logging.getLogger(__name__)
 
+# Prima un file unico con audio (come il vecchio itag 18). Se YouTube offre solo
+# flussi separati, video H.264 + audio m4a: VLC li riproduce insieme subito,
+# mentre il download in background li unisce in un mp4.
+_STREAM_FORMAT = (
+    "b[vcodec^=avc1][acodec^=mp4a]/"
+    "b[acodec!=none][vcodec!=none]/"
+    "bv*[vcodec^=avc1][height<=?720][ext=mp4]+ba[ext=m4a]/"
+    "bv*[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/"
+    "bv*[ext=mp4]+ba/b"
+)
+
+
+def playback_urls_from_info(info: dict) -> tuple[str, str | None]:
+    """Estrae URL video e, se l'audio è un flusso a parte, URL audio.
+
+    Un file progressivo restituisce solo l'URL video (l'audio è già dentro).
+    """
+    requested = info.get("requested_formats") or []
+    video_url = ""
+    audio_url = ""
+    for fmt in requested:
+        url = fmt.get("url") or ""
+        if not url:
+            continue
+        vcodec = fmt.get("vcodec") or "none"
+        acodec = fmt.get("acodec") or "none"
+        if vcodec != "none" and not video_url:
+            video_url = url
+        if acodec != "none" and vcodec == "none" and not audio_url:
+            audio_url = url
+    if video_url and audio_url:
+        return video_url, audio_url
+    single = info.get("url") or video_url or audio_url
+    if not single:
+        raise ValueError("Nessuno stream URL")
+    return single, None
+
 
 def _base_ydl_opts() -> dict:
     """Opzioni yt-dlp comuni, incluso ffmpeg bundled nell'installer Windows."""
@@ -24,21 +61,27 @@ def _base_ydl_opts() -> dict:
 class YtdlpEngine:
     """Motore yt-dlp per stream URL, download e metadati."""
 
-    def get_stream_url(self, youtube_id: str) -> str:
-        """Ritorna URL diretto del miglior flusso audio+video pre-merged."""
+    def resolve_stream(self, youtube_id: str) -> tuple[str, str | None]:
+        """Ritorna l'URL video e, se serve, l'URL audio separato.
+
+        YouTube spesso non ha più un mp4 unico con audio. In quel caso il video
+        H.264 e l'audio m4a vanno riprodotti insieme, senza aspettare il download.
+        """
         url = f"https://www.youtube.com/watch?v={youtube_id}"
-        # Preferisci un flusso unico H.264 con audio (es. itag 18): leggero da decodificare
-        # e con audio incluso, a differenza degli stream AV1/VP9 video-only.
-        ydl_opts = {
-            **_base_ydl_opts(),
-            "format": "best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best",
-        }
+        ydl_opts = {**_base_ydl_opts(), "format": _STREAM_FORMAT}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-        stream_url = info.get("url", "")
-        if not stream_url:
+        if not info:
             raise ValueError(f"Nessuno stream URL per {youtube_id}")
-        return stream_url
+        try:
+            return playback_urls_from_info(info)
+        except ValueError as exc:
+            raise ValueError(f"Nessuno stream URL per {youtube_id}") from exc
+
+    def get_stream_url(self, youtube_id: str) -> str:
+        """Ritorna l'URL video da riprodurre subito, anche a download incompleto."""
+        video_url, _audio_url = self.resolve_stream(youtube_id)
+        return video_url
 
     def download(
         self,
