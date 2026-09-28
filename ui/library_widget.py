@@ -114,15 +114,12 @@ class LibraryWidget(QWidget):
         self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._list.setAlternatingRowColors(True)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        if self._live_browse_mode:
-            self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        else:
-            self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self._list.customContextMenuRequested.connect(self._on_context_menu)
+        self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._on_context_menu)
         layout.addWidget(self._list, stretch=1)
 
         if self._live_browse_mode:
-            hint = QLabel("Doppio click: accoda in coda e chiudi")
+            hint = QLabel("Doppio click: accoda e chiudi · tasto destro: elimina")
         elif self._prep_mode:
             hint = QLabel(
                 "Doppio click: riproduci · tasto destro: modifica metadati e altre azioni"
@@ -286,6 +283,12 @@ class LibraryWidget(QWidget):
         if not track:
             return
         menu = QMenu(self)
+        if self._live_browse_mode:
+            delete_action = menu.addAction("Elimina")
+            chosen = menu.exec(self._list.mapToGlobal(pos))
+            if chosen is delete_action:
+                self.delete_requested.emit(track)
+            return
         if self._prep_mode:
             play_action = menu.addAction("Riproduci")
         edit_action = menu.addAction("Modifica artista e titolo…")

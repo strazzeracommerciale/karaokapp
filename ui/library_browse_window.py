@@ -18,6 +18,7 @@ class LibraryBrowseWindow(QWidget):
     """Libreria filtrabile: doppio click accoda il brano e chiude la finestra."""
 
     track_chosen = pyqtSignal(dict)
+    delete_requested = pyqtSignal(dict)
 
     def __init__(self, library_service: "LibraryService") -> None:
         super().__init__(flags=Qt.WindowType.Window)
@@ -34,6 +35,7 @@ class LibraryBrowseWindow(QWidget):
         layout.addWidget(self._library_widget)
         self._library_widget.refresh_requested.connect(self._on_refresh)
         self._library_widget.track_selected.connect(self._on_track_chosen)
+        self._library_widget.delete_requested.connect(self.delete_requested.emit)
 
     def open_browse(self) -> None:
         """Mostra la finestra con l'elenco libreria aggiornato."""

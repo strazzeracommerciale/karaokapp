@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -44,6 +45,12 @@ def test_library_browse_window_emits_on_double_click_path() -> None:
     window._on_track_chosen(track)
     assert chosen == [track]
     assert not window.isVisible()
+    policy = window._library_widget._list.contextMenuPolicy()
+    assert policy == Qt.ContextMenuPolicy.CustomContextMenu
+    deleted: list[dict] = []
+    window.delete_requested.connect(deleted.append)
+    window._library_widget.delete_requested.emit(track)
+    assert deleted == [track]
 
 
 if __name__ == "__main__":

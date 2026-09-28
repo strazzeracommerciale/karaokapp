@@ -115,6 +115,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         if library_service is not None:
             self._library_browse = LibraryBrowseWindow(library_service)
+            self._library_browse.delete_requested.connect(self._on_library_delete_requested)
             self._library_browse.track_chosen.connect(self._on_track_selected)
         self._connect_karaoke_flow_signals()
         self._connect_widget_signals()
@@ -512,18 +513,21 @@ class MainWindow(QMainWindow):
         track_id = track.get("id")
         if track_id is None or self._library is None:
             return
-        title = track.get("title", "brano")
-        reply = QMessageBox.question(
-            self,
-            "Elimina dalla libreria",
-            f"Eliminare «{title}» dalla libreria?\n\nIl file verrà rimosso dal disco.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        title = clean_title(track.get("title", "")) or track.get("title", "brano")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Elimina")
+        box.setText(f"Eliminare «{title}»?\n\nVerrà cancellato anche il file.")
+        yes_button = box.addButton("Sì", QMessageBox.ButtonRole.YesRole)
+        no_button = box.addButton("No", QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(no_button)
+        box.exec()
+        if box.clickedButton() is not yes_button:
             return
         if self._library.delete_track(track_id):
             self._on_library_refresh()
+            if self._library_browse is not None:
+                self._library_browse.refresh_if_visible()
             self._refresh_playlists()
             if self._queue is not None:
                 self._queue_widget.set_queue(self._queue.get_queue())

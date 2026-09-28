@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+import time
 from collections import deque
 from typing import Literal
 
@@ -15,6 +16,14 @@ from utils.track_metadata import resolve_artist_title
 logger = logging.getLogger(__name__)
 
 TrackType = Literal["karaoke", "dj"]
+_DOWNLOAD_ATTEMPTS = 3
+
+
+def is_retryable_download_error(message: str) -> bool:
+    """True se l'errore YouTube è spesso transitorio e vale un nuovo tentativo."""
+    lowered = message.lower()
+    markers = ("403", "429", "timed out", "timeout", "unable to download", "temporarily")
+    return any(marker in lowered for marker in markers)
 
 
 class _DownloadWorker(QThread):
@@ -66,28 +75,49 @@ class _DownloadWorker(QThread):
                         percent = int(downloaded * 100 / total) if total > 0 else 0
                         self.progress.emit(youtube_id, percent)
 
-                metadata = self._ytdlp.extract_metadata(youtube_id)
-                raw_title = metadata.get("title", title)
-                artist, song_title = resolve_artist_title(
-                    raw_title, metadata, registry=self._artist_registry
-                )
-                basename = build_download_basename(artist, song_title, youtube_id)
-                file_path = self._ytdlp.download(
-                    youtube_id,
-                    str(output_path),
-                    progress_hook=hook,
-                    basename=basename,
-                )
-                track_dict = self._save_track(
-                    youtube_id,
-                    raw_title,
-                    metadata,
-                    file_path,
-                    trigger,
-                    track_type,
-                    artist=artist or None,
-                    song_title=song_title or raw_title,
-                )
+                last_error: Exception | None = None
+                track_dict: dict | None = None
+                for attempt in range(_DOWNLOAD_ATTEMPTS):
+                    try:
+                        metadata = self._ytdlp.extract_metadata(youtube_id)
+                        raw_title = metadata.get("title", title)
+                        artist, song_title = resolve_artist_title(
+                            raw_title, metadata, registry=self._artist_registry
+                        )
+                        basename = build_download_basename(artist, song_title, youtube_id)
+                        file_path = self._ytdlp.download(
+                            youtube_id,
+                            str(output_path),
+                            progress_hook=hook,
+                            basename=basename,
+                        )
+                        track_dict = self._save_track(
+                            youtube_id,
+                            raw_title,
+                            metadata,
+                            file_path,
+                            trigger,
+                            track_type,
+                            artist=artist or None,
+                            song_title=song_title or raw_title,
+                        )
+                        last_error = None
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                        retryable = is_retryable_download_error(str(exc))
+                        if attempt + 1 < _DOWNLOAD_ATTEMPTS and retryable:
+                            logger.warning(
+                                "Download %s tentativo %s non riuscito, riprovo: %s",
+                                youtube_id,
+                                attempt + 1,
+                                exc,
+                            )
+                            time.sleep(2 * (attempt + 1))
+                            continue
+                        break
+                if last_error is not None or track_dict is None:
+                    raise last_error or RuntimeError(f"Download non riuscito: {youtube_id}")
                 self.complete.emit(youtube_id, track_dict)
             except Exception as exc:
                 logger.error("Download fallito per %s: %s", youtube_id, exc)
