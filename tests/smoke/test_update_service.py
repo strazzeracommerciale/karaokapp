@@ -41,7 +41,38 @@ def test_release_info_from_api_payload() -> None:
     assert info is not None
     assert info.version == "2.1"
     assert info.asset_id == 42
+    assert info.kind == "installer"
     assert info.download_url.endswith("setup.exe")
+
+
+def test_matching_delta_is_preferred(monkeypatch, tmp_path) -> None:
+    script = tmp_path / "apply_update.ps1"
+    script.write_text("# apply\n", encoding="utf-8")
+    monkeypatch.setattr(config, "INSTALL_DIR", tmp_path)
+    worker = _UpdateCheckWorker("owner/repo", "KaraokeManager-Setup.exe", "2.2.6")
+    release = {
+        "tag_name": "v2.2.7",
+        "body": "",
+        "assets": [
+            {
+                "id": 7,
+                "name": "KaraokeManager-Setup.exe",
+                "browser_download_url": "https://example.com/setup.exe",
+                "size": 900,
+            },
+            {
+                "id": 8,
+                "name": "KaraokeManager-delta-from-2.2.6.zip",
+                "browser_download_url": "https://example.com/delta.zip",
+                "size": 40,
+            },
+        ],
+    }
+    info = worker._release_to_info(release)
+    assert info is not None
+    assert info.kind == "delta"
+    assert info.asset_id == 8
+    assert info.download_size == 40
 
 
 def test_github_request_headers_include_token(monkeypatch) -> None:

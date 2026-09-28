@@ -260,3 +260,15 @@ Quando viene richiesta una modifica:
 3. Se la modifica tocca un contratto di interfaccia già definito: segnalalo esplicitamente prima di procedere
 4. Se la modifica tocca `config.py`, `db_core.py` o `schema.sql`: richiedi conferma esplicita
 5. Produci sempre uno smoke test per la modifica
+
+---
+
+## 13. AGGIORNAMENTI WINDOWS
+
+La prima installazione è `KaraokeManager-Setup.exe`. Gli aggiornamenti successivi
+sostituiscono solo i file cambiati (`manifest.json` + `KaraokeManager-delta-from-<versione>.zip`).
+
+Non includere né cancellare `data/`, `media/`, `logs/` o `github_update_token.txt`.
+Prima di pubblicare una release, `python build/update_package.py verify --dist dist/KaraokeManager`
+deve passare: exe, Python 3.12, Qt, VLC, ffmpeg reale, `apply_update.ps1`, manifest.
+Il delta si applica solo a programma chiuso, con controllo dell'hash prima e dopo la copia.

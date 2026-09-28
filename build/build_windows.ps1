@@ -164,6 +164,13 @@ if (-not $iscc) {
     exit 0
 }
 
+Write-Host "==> Manifest e verifica dipendenze..."
+Copy-Item -Force (Join-Path $Root "build\apply_update.ps1") (Join-Path $Dist "apply_update.ps1")
+& python (Join-Path $Root "build\update_package.py") manifest --dist $Dist
+if ($LASTEXITCODE -ne 0) { throw "Creazione manifest fallita" }
+& python (Join-Path $Root "build\update_package.py") verify --dist $Dist
+if ($LASTEXITCODE -ne 0) { throw "Verifica pacchetto fallita: aggiornamento non pubblicabile" }
+
 Write-Host "==> Inno Setup..."
 & $iscc (Join-Path $Root "build\installer.iss")
 $setup = Join-Path $Root "dist\KaraokeManager-Setup.exe"

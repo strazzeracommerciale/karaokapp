@@ -43,8 +43,24 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Manca $exe dopo build" }
           if ((Get-Item $ffmpeg).Length -lt 20MB) { throw "ffmpeg nel pacchetto è uno stub, non il binario reale" }
 
+      - name: Delta rispetto alla release precedente
+        shell: pwsh
+        run: |
+          $prev = "dist\previous-manifest.json"
+          python build\update_package.py fetch-previous --out $prev
+          if (Test-Path $prev) {
+            $old = Get-Content -Raw $prev | ConvertFrom-Json
+            $from = $old.version
+            if (-not $from) { throw "manifest precedente senza version" }
+            python build\update_package.py delta --previous $prev --dist dist\KaraokeManager --out "dist\KaraokeManager-delta-from-$from.zip"
+          }
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/KaraokeManager-Setup.exe
+          files: |
+            dist/KaraokeManager-Setup.exe
+            dist/manifest.json
+            dist/KaraokeManager-delta-from-*.zip
+          fail_on_unmatched_files: false
           generate_release_notes: true

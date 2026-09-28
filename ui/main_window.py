@@ -750,7 +750,7 @@ class MainWindow(QMainWindow):
             return
         self._update_btn.setText("Installazione…")
         try:
-            self._update_service.launch_installer(setup_path)
+            self._update_service.apply_downloaded(setup_path)
         except OSError as exc:
             self._reset_update_button()
             QMessageBox.critical(

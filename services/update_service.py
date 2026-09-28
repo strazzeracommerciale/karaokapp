@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -15,6 +16,7 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QSettings, QThread, QTimer, pyqtSignal
 
 import config
+from services.update_plan import stage_delta_zip
 from utils.version_compare import is_newer_version, normalize_version_label
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ class ReleaseInfo:
     download_url: str
     download_size: int
     asset_id: int = 0
+    kind: str = "installer"
 
 
 def update_client_enabled() -> bool:
@@ -132,14 +135,27 @@ class _UpdateCheckWorker(QThread):
         download_url = ""
         download_size = 0
         asset_id = 0
+        kind = "installer"
+        delta_name = f"{config.UPDATE_DELTA_PREFIX}{self._current_version}.zip"
+        chosen: dict | None = None
+        fallback: dict | None = None
         for asset in assets:
             if not isinstance(asset, dict):
                 continue
-            if asset.get("name") == self._asset_name:
-                download_url = str(asset.get("browser_download_url") or "")
-                download_size = int(asset.get("size") or 0)
-                asset_id = int(asset.get("id") or 0)
+            name = asset.get("name")
+            if name == delta_name and (config.INSTALL_DIR / "apply_update.ps1").is_file():
+                chosen = asset
+                kind = "delta"
                 break
+            if name == self._asset_name:
+                fallback = asset
+        if chosen is None:
+            chosen = fallback
+            kind = "installer"
+        if isinstance(chosen, dict):
+            download_url = str(chosen.get("browser_download_url") or "")
+            download_size = int(chosen.get("size") or 0)
+            asset_id = int(chosen.get("id") or 0)
         if not download_url and asset_id <= 0:
             logger.warning(
                 "Release %s senza asset %r", tag, self._asset_name
@@ -153,6 +169,7 @@ class _UpdateCheckWorker(QThread):
             download_url=download_url,
             download_size=download_size,
             asset_id=asset_id,
+            kind=kind,
         )
 
 
@@ -227,6 +244,7 @@ class UpdateService(QObject):
         self._pending_release: ReleaseInfo | None = None
         self._auto_apply_after_check = False
         self._busy = False
+        self._download_kind = "installer"
 
     @property
     def is_busy(self) -> bool:
@@ -280,7 +298,13 @@ class UpdateService(QObject):
         if self._busy:
             return
         self._busy = True
-        destination = config.TEMP_DIR / config.UPDATE_INSTALLER_ASSET
+        self._download_kind = release.kind
+        asset_name = (
+            f"{config.UPDATE_DELTA_PREFIX}{config.APP_VERSION}.zip"
+            if release.kind == "delta"
+            else config.UPDATE_INSTALLER_ASSET
+        )
+        destination = config.TEMP_DIR / asset_name
         if destination.is_file():
             try:
                 destination.unlink()
@@ -314,6 +338,40 @@ class UpdateService(QObject):
             close_fds=True,
         )
         logger.info("Installer aggiornamento avviato: %s", path)
+
+    def launch_delta(self, zip_path: str | Path) -> None:
+        """Verifica il delta e lo applica solo dopo la chiusura del programma."""
+        script = config.INSTALL_DIR / "apply_update.ps1"
+        if not script.is_file():
+            raise FileNotFoundError(f"Script di aggiornamento assente: {script}")
+        staging = config.TEMP_DIR / "delta-staging"
+        stage_delta_zip(Path(zip_path), staging)
+        subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+                "-Staging",
+                str(staging),
+                "-InstallDir",
+                str(config.INSTALL_DIR),
+                "-WaitPid",
+                str(os.getpid()),
+            ],
+            cwd=str(config.INSTALL_DIR),
+            close_fds=True,
+        )
+        logger.info("Delta aggiornamento avviato da %s", zip_path)
+
+    def apply_downloaded(self, path: str | Path) -> None:
+        """Applica l'aggiornamento scaricato: delta se possibile, altrimenti installer."""
+        if self._download_kind == "delta":
+            self.launch_delta(path)
+            return
+        self.launch_installer(path)
 
     def _on_check_completed(self, release: object) -> None:
         self._busy = False
