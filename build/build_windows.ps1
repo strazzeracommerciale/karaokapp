@@ -110,6 +110,7 @@ Get-ChildItem -Path $VlcPath -Filter "*.dll" -File | ForEach-Object {
 Copy-Item -Recurse -Force (Join-Path $VlcPath "plugins") (Join-Path $vlcDest "plugins")
 
 Write-Host "==> Copia mpv..."
+& (Join-Path $PSScriptRoot "fetch_mpv.ps1")
 $mpvSource = Join-Path $PSScriptRoot "..\mpv"
 if (-not (Test-Path (Join-Path $mpvSource "mpv.exe"))) {
     throw "mpv non trovato in '$mpvSource'. Servono mpv.exe e vulkan-1.dll."
@@ -133,6 +134,7 @@ $required = @(
     (Join-Path $Dist "vlc\plugins"),
     (Join-Path $Dist "mpv\mpv.exe"),
     (Join-Path $Dist "mpv\vulkan-1.dll"),
+    (Join-Path $Dist "mpv\d3dcompiler_43.dll"),
     (Join-Path $Dist "_internal\PyQt6\Qt6\plugins\platforms\qwindows.dll"),
     (Join-Path $Dist "_internal\db\schema.sql"),
     (Join-Path $Dist "_internal\assets\style_b.qss"),

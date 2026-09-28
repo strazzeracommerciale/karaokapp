@@ -25,6 +25,7 @@ REQUIRED_FILES = (
     "vlc/libvlc.dll",
     "mpv/mpv.exe",
     "mpv/vulkan-1.dll",
+    "mpv/d3dcompiler_43.dll",
 )
 
 

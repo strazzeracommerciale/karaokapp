@@ -3,7 +3,7 @@
 Lavoro sulla copia locale. Ogni versione elenca cosa è stato aggiornato, aggiunto o corretto
 rispetto alla precedente. La pubblicazione su GitHub avviene solo quando viene chiesta.
 
-La versione 2.2.8 è l'ultima pubblicata. Il lavoro in corso è la 3.0.0.
+La versione 3.0.0 è la release corrente.
 
 ## 3.0.0
 
@@ -11,6 +11,7 @@ La versione 2.2.8 è l'ultima pubblicata. Il lavoro in corso è la 3.0.0.
 - Aggiunti i pulsanti del tono sotto i controlli del brano karaoke.
 - Aggiornato il secondo schermo: il lettore resta acceso quando il monitor si spegne e, alla riaccensione, si aggancia una volta sola alla posizione del brano.
 - Corretto il sottofondo: scegliendo il file la musica parte subito, se in quel momento non c'è un brano karaoke in corso.
+- Aggiornata la build Windows: il pacchetto include lo stesso mpv provato in ascolto (28 settembre 2026, senza AVX2), più vulkan-1.dll e d3dcompiler_43.dll.
 
 ## 2.2.8
 

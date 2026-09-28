@@ -31,6 +31,9 @@ jobs:
       - name: Install VLC
         run: choco install vlc -y
 
+      - name: Install 7-Zip
+        run: choco install 7zip -y
+
       - name: Build installer
         shell: pwsh
         env:
@@ -42,6 +45,9 @@ jobs:
           $ffmpeg = "dist\KaraokeManager\bin\ffmpeg.exe"
           if (-not (Test-Path $exe)) { throw "Manca $exe dopo build" }
           if ((Get-Item $ffmpeg).Length -lt 20MB) { throw "ffmpeg nel pacchetto è uno stub, non il binario reale" }
+          if (-not (Test-Path "dist\KaraokeManager-Setup.exe")) { throw "Manca dist\KaraokeManager-Setup.exe" }
+          if (-not (Test-Path "dist\manifest.json")) { throw "Manca dist\manifest.json" }
+          python build\update_package.py verify --dist dist\KaraokeManager
 
       - name: Delta rispetto alla release precedente
         shell: pwsh
