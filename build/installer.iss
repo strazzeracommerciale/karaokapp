@@ -32,6 +32,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+; Evita il mix di DLL Python tra una versione e la successiva (crash silenzioso di Qt).
+; data\, media\ e logs\ restano.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "..\dist\KaraokeManager\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs; Excludes: "logs\*,*.log"
 
