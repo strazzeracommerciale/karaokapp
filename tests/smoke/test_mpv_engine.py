@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtWidgets import QApplication
 
-from engines.mpv_engine import MpvEngine, semitone_ratio
+from engines.mpv_engine import MpvEngine, loadfile_command, semitone_ratio
 
 _app = QApplication.instance() or QApplication([])
 
@@ -18,6 +18,22 @@ def test_semitone_ratio_matches_equal_temperament() -> None:
     assert abs(semitone_ratio(1) - 2 ** (1 / 12)) < 1e-12
     assert abs(semitone_ratio(-5) - 2 ** (-5 / 12)) < 1e-12
     assert abs(semitone_ratio(5) - 2 ** (5 / 12)) < 1e-12
+
+
+def test_start_offset_is_passed_as_mpv_option() -> None:
+    """L'offset non deve finire nel campo indice, che mpv rifiuta."""
+    assert loadfile_command(r"C:\brani\a.mp4", 0.0) == (
+        "loadfile",
+        r"C:\brani\a.mp4",
+        "replace",
+    )
+    assert loadfile_command(r"C:\brani\a.mp4", 6.633) == (
+        "loadfile",
+        r"C:\brani\a.mp4",
+        "replace",
+        -1,
+        "start=6.633",
+    )
 
 
 def test_engine_exposes_the_player_api() -> None:
@@ -48,5 +64,6 @@ def test_engine_exposes_the_player_api() -> None:
 
 if __name__ == "__main__":
     test_semitone_ratio_matches_equal_temperament()
+    test_start_offset_is_passed_as_mpv_option()
     test_engine_exposes_the_player_api()
     print("ok")

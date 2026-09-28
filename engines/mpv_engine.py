@@ -40,6 +40,17 @@ def semitone_ratio(steps: int) -> float:
     return 2.0 ** (steps / 12.0)
 
 
+def loadfile_command(path: str, start_time: float) -> tuple[object, ...]:
+    """Argomenti IPC di loadfile.
+
+    Su mpv 0.41 il terzo argomento è l'indice in scaletta, non le opzioni.
+    L'offset di «Inizia da qui» va nel quarto, altrimenti il brano non parte.
+    """
+    if start_time > 0.2:
+        return ("loadfile", path, "replace", -1, f"start={start_time:.3f}")
+    return ("loadfile", path, "replace")
+
+
 def _lower_priority(pid: int) -> None:
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.OpenProcess.restype = ctypes.c_void_p
@@ -231,11 +242,7 @@ class MpvEngine:
         if same_file:
             logger.info("Secondo schermo già sul brano, niente ricarica: %s", self._role)
             return
-        options = f"start={start_time:.3f}" if start_time > 0.2 else ""
-        if options:
-            reply = self._command("loadfile", path_or_url, "replace", options, timeout=2.0)
-        else:
-            reply = self._command("loadfile", path_or_url, "replace", timeout=2.0)
+        reply = self._command(*loadfile_command(path_or_url, start_time), timeout=2.0)
         if reply is None or reply.get("error") not in (None, "success"):
             logger.error("Caricamento mpv non riuscito (%s): %s", self._role, reply)
             return

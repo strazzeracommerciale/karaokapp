@@ -3,7 +3,11 @@
 Lavoro sulla copia locale. Ogni versione elenca cosa è stato aggiornato, aggiunto o corretto
 rispetto alla precedente. La pubblicazione su GitHub avviene solo quando viene chiesta.
 
-La versione 3.0.0 è la release corrente.
+La versione 3.0.1 è la release corrente.
+
+## 3.0.1
+
+- Corretto «Inizia da qui»: il punto di inizio veniva passato a mpv nel campo sbagliato, il caricamento rispondeva «invalid parameter» e il brano non partiva più. Il punto già salvato resta valido.
 
 ## 3.0.0
 
