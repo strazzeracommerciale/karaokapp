@@ -1,6 +1,7 @@
 """Finestra principale operatore."""
 
 import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -343,6 +344,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self._main_splitter, stretch=1)
 
         self._player_widget = PlayerWidget()
+        if sys.platform == "win32":
+            self._player_widget.enable_pitch_controls()
         root.addWidget(self._player_widget, stretch=0)
 
         self._preview_maximized = False
@@ -467,6 +470,8 @@ class MainWindow(QMainWindow):
         self._player_widget.seek_requested.connect(self._on_seek)
         self._player_widget.volume_changed.connect(self._on_volume)
         self._player_widget.set_start_here_clicked.connect(self._on_set_start_here)
+        self._player_widget.pitch_delta_requested.connect(self._on_pitch_delta)
+        self._player_widget.pitch_reset_requested.connect(self._on_pitch_reset)
         self._queue_widget.next_singer_clicked.connect(self._on_next_singer)
         self._queue_widget.reorder_requested.connect(self._on_reorder)
         self._queue_widget.remove_requested.connect(self._on_remove)
@@ -892,6 +897,20 @@ class MainWindow(QMainWindow):
         if self._player is not None:
             self._player.set_volume(value)
 
+    def _on_pitch_delta(self, delta: int) -> None:
+        """Alza o abbassa il tono di un semitono."""
+        if self._player is None:
+            return
+        self._player.set_semitones(self._player.semitones() + delta)
+        self._player_widget.set_pitch_label(self._player.semitones())
+
+    def _on_pitch_reset(self) -> None:
+        """Riporta il tono all'originale."""
+        if self._player is None:
+            return
+        self._player.set_semitones(0)
+        self._player_widget.set_pitch_label(0)
+
     def set_external_available(self, available: bool) -> None:
         """Abilita il pulsante solo se è presente un secondo schermo."""
         self._external_available = available
@@ -1024,7 +1043,7 @@ class MainWindow(QMainWindow):
         if not self._filler_source.is_enabled_checked():
             self._filler_source.set_enabled_checked(True)
             self._filler.set_enabled(True)
-        elif not self._is_track_playing():
+        if not self._is_track_playing():
             self._filler.start()
 
     def _on_set_as_filler(self, track: dict) -> None:

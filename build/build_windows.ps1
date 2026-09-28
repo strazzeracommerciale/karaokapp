@@ -109,6 +109,21 @@ Get-ChildItem -Path $VlcPath -Filter "*.dll" -File | ForEach-Object {
 }
 Copy-Item -Recurse -Force (Join-Path $VlcPath "plugins") (Join-Path $vlcDest "plugins")
 
+Write-Host "==> Copia mpv..."
+$mpvSource = Join-Path $PSScriptRoot "..\mpv"
+if (-not (Test-Path (Join-Path $mpvSource "mpv.exe"))) {
+    throw "mpv non trovato in '$mpvSource'. Servono mpv.exe e vulkan-1.dll."
+}
+$mpvDest = Join-Path $Dist "mpv"
+New-Item -ItemType Directory -Force -Path $mpvDest | Out-Null
+foreach ($name in @("mpv.exe", "vulkan-1.dll", "d3dcompiler_43.dll")) {
+    $src = Join-Path $mpvSource $name
+    if (-not (Test-Path $src)) {
+        throw "File mpv mancante: $src"
+    }
+    Copy-Item -Force $src $mpvDest
+}
+
 Write-Host "==> Verifica pacchetto standalone..."
 $required = @(
     (Join-Path $Dist "KaraokeManager.exe"),
@@ -116,6 +131,8 @@ $required = @(
     (Join-Path $Dist "vlc\libvlc.dll"),
     (Join-Path $Dist "vlc\libvlccore.dll"),
     (Join-Path $Dist "vlc\plugins"),
+    (Join-Path $Dist "mpv\mpv.exe"),
+    (Join-Path $Dist "mpv\vulkan-1.dll"),
     (Join-Path $Dist "_internal\PyQt6\Qt6\plugins\platforms\qwindows.dll"),
     (Join-Path $Dist "_internal\db\schema.sql"),
     (Join-Path $Dist "_internal\assets\style_b.qss"),

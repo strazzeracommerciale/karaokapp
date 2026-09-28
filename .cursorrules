@@ -162,9 +162,10 @@ Qualsiasi import che viola questa tabella è un bug architetturale, non un'eccez
 
 ## 7. COMPATIBILITÀ CROSS-PLATFORM
 
-- Video in vlc_engine.py → embed nativo: set_hwnd (win32) / set_nsobject (darwin) /
-  set_xwindow (linux). Dual-monitor: secondo player VLC clonato (stessa istanza libvlc),
-  audio su un solo player. Nessun pitch/tempo: VLC riproduce audio+video nativamente.
+- Video su Windows: mpv embeddato con ``--wid``, tono Rubber Band da -5 a +5.
+  Su macOS resta VLC: ``set_nsobject`` (darwin) / ``set_xwindow`` (linux).
+  Dual-monitor: secondo lettore senza audio. Su Windows non viene chiuso
+  quando il monitor esterno si spegne.
 - Font in config.py → "Segoe UI" (win32) / ".AppleSystemUIFont" (darwin)
 - VLC plugin path in config → Path("C:/Program Files/VideoLAN/VLC/plugins") su win32, None su darwin
 

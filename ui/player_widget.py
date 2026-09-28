@@ -47,6 +47,10 @@ class PlayerWidget(QWidget):
 
     set_start_here_clicked = pyqtSignal()
 
+    pitch_delta_requested = pyqtSignal(int)
+
+    pitch_reset_requested = pyqtSignal()
+
 
 
     def __init__(self) -> None:
@@ -274,5 +278,44 @@ class PlayerWidget(QWidget):
         self._progress.setValue(0)
 
         self._set_start_btn.setEnabled(False)
+
+    def enable_pitch_controls(self) -> None:
+        """Aggiunge i pulsanti del tono, da -5 a +5 semitoni."""
+        if getattr(self, "_pitch_label", None) is not None:
+            return
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(QLabel("Tono"))
+        down = QPushButton("−")
+        up = QPushButton("+")
+        home = QPushButton("Originale")
+        for button in (down, up):
+            button.setFixedWidth(40)
+        down.clicked.connect(lambda: self.pitch_delta_requested.emit(-1))
+        up.clicked.connect(lambda: self.pitch_delta_requested.emit(1))
+        home.clicked.connect(self.pitch_reset_requested.emit)
+        self._pitch_label = QLabel("0  originale")
+        self._pitch_label.setMinimumWidth(140)
+        row.addWidget(down)
+        row.addWidget(self._pitch_label)
+        row.addWidget(up)
+        row.addWidget(home)
+        row.addStretch(1)
+        layout = self.layout()
+        if layout is not None:
+            layout.addLayout(row)
+
+    def set_pitch_label(self, steps: int) -> None:
+        """Mostra lo spostamento di tono corrente."""
+        label = getattr(self, "_pitch_label", None)
+        if label is None:
+            return
+        steps = max(-5, min(5, int(steps)))
+        if steps == 0:
+            label.setText("0  originale")
+            return
+        sign = "+" if steps > 0 else ""
+        unit = "semitono" if abs(steps) == 1 else "semitoni"
+        label.setText(f"{sign}{steps}  {unit}")
 
 

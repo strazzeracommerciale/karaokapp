@@ -168,6 +168,17 @@ class PlayerService(QObject):
         self._vlc.set_mute(False)
         self._vlc.set_volume(self._volume)
 
+    def set_semitones(self, steps: int) -> None:
+        """Sposta il tono del brano, se il motore lo supporta."""
+        if hasattr(self._vlc, "set_semitones"):
+            self._vlc.set_semitones(steps)
+
+    def semitones(self) -> int:
+        """Semitoni correnti rispetto all'originale, oppure 0."""
+        if hasattr(self._vlc, "semitones"):
+            return int(self._vlc.semitones())
+        return 0
+
     def current_local_path(self) -> str | None:
         """Restituisce il path del file locale in riproduzione, o None se stream remoto."""
         if not self._current_path:

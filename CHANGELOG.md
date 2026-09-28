@@ -3,7 +3,14 @@
 Lavoro sulla copia locale. Ogni versione elenca cosa è stato aggiornato, aggiunto o corretto
 rispetto alla precedente. La pubblicazione su GitHub avviene solo quando viene chiesta.
 
-La versione 2.2.7 è l'ultima pubblicata e installata sul portatile.
+La versione 2.2.8 è l'ultima pubblicata. Il lavoro in corso è la 3.0.0.
+
+## 3.0.0
+
+- Aggiornato il motore di riproduzione su Windows: al posto di VLC c'è mpv con Rubber Band. Il tono si cambia a brano partito, un semitono alla volta, da −5 a +5, senza cambiare la velocità. Su macOS resta VLC.
+- Aggiunti i pulsanti del tono sotto i controlli del brano karaoke.
+- Aggiornato il secondo schermo: il lettore resta acceso quando il monitor si spegne e, alla riaccensione, si aggancia una volta sola alla posizione del brano.
+- Corretto il sottofondo: scegliendo il file la musica parte subito, se in quel momento non c'è un brano karaoke in corso.
 
 ## 2.2.8
 

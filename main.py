@@ -227,7 +227,11 @@ def _toggle_prep_window(prep_window: PrepWindow) -> None:
 
 
 def _cleanup() -> None:
-    """Shutdown pulito: connessione DB."""
+    """Shutdown pulito: lettori mpv e connessione DB."""
+    if sys.platform == "win32":
+        from engines.mpv_engine import MpvEngine
+
+        MpvEngine.shutdown_all()
     db_core.close()
     logger.info("Shutdown completato")
 
@@ -347,7 +351,6 @@ def main() -> int:
     )
 
     if not args.dry_run:
-        from engines.vlc_engine import VlcEngine
         from engines.ytdlp_engine import YtdlpEngine
         from services.dj_player_service import DjPlayerService
         from services.download_service import DownloadService
@@ -355,9 +358,25 @@ def main() -> int:
         from services.player_service import PlayerService
 
         try:
-            vlc_engine = VlcEngine(*config.KARAOKE_VLC_ARGS)
+            if sys.platform == "win32":
+                from engines.mpv_engine import MpvEngine
+
+                playback_engine = MpvEngine
+                karaoke_args = ("--karokapp-pitch",)
+                dj_args: tuple[str, ...] = ()
+                prep_args: tuple[str, ...] = ()
+                filler_args = ("--no-video",)
+            else:
+                from engines.vlc_engine import VlcEngine
+
+                playback_engine = VlcEngine
+                karaoke_args = config.KARAOKE_VLC_ARGS
+                dj_args = config.DJ_VLC_ARGS
+                prep_args = config.PREP_VLC_ARGS
+                filler_args = config.FILLER_VLC_ARGS
+            vlc_engine = playback_engine(*karaoke_args)
             vlc_engine_secondary = vlc_engine.clone()
-            vlc_dj_engine = VlcEngine(*config.DJ_VLC_ARGS)
+            vlc_dj_engine = playback_engine(*dj_args)
             ytdlp_engine = YtdlpEngine()
             search_engine = SearchEngine(conn)
             search_engine_dj = SearchEngine(conn, track_type="dj")
@@ -374,9 +393,9 @@ def main() -> int:
                 vlc_engine_secondary,
             )
             dj_player_service = DjPlayerService(vlc_dj_engine, ytdlp_engine)
-            vlc_prep_engine = VlcEngine(*config.PREP_VLC_ARGS)
+            vlc_prep_engine = playback_engine(*prep_args)
             prep_player_service = DjPlayerService(vlc_prep_engine, ytdlp_engine)
-            filler_engine = VlcEngine(*config.FILLER_VLC_ARGS)
+            filler_engine = playback_engine(*filler_args)
             filler_service = FillerService(filler_engine)
             main_window.wire_services(player_service, search_service, download_service)
             main_window.set_filler_service(filler_service)
@@ -384,11 +403,11 @@ def main() -> int:
             dj_playback_flow.set_filler(filler_service)
             external_coordinator.set_player(player_service)
         except Exception as exc:
-            logger.exception("Inizializzazione VLC/player fallita")
+            logger.exception("Inizializzazione motore video/audio fallita")
             QMessageBox.critical(
                 None,
-                "KaraokeManager — errore VLC",
-                "Impossibile inizializzare il motore video/audio (VLC).\n\n"
+                "KaraokeManager — errore riproduzione",
+                "Impossibile inizializzare il motore video/audio.\n\n"
                 f"Dettaglio: {exc}\n\n"
                 f"Log: {config.LOG_PATH}",
             )

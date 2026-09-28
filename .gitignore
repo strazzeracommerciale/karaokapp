@@ -14,3 +14,4 @@ github_update_token.txt
 *.egg-info/
 dist/
 build/KaraokeManager/
+mpv/

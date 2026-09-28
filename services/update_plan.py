@@ -23,6 +23,8 @@ REQUIRED_FILES = (
     "_internal/PyQt6/Qt6/plugins/platforms/qwindows.dll",
     "bin/ffmpeg.exe",
     "vlc/libvlc.dll",
+    "mpv/mpv.exe",
+    "mpv/vulkan-1.dll",
 )
 
 
