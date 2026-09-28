@@ -56,13 +56,19 @@ function Resolve-RealFfmpegTool([string]$Name) {
     # Gli alias WinGet/WindowsApps sono stub da poche centinaia di KB: copiati da soli
     # non trovano il binario vero e yt-dlp segnala "ffmpeg is not installed".
     if ($item.Length -lt 20MB) {
-        $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
-        $real = Get-ChildItem $wingetRoot -Recurse -Filter "$Name.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Length -ge 20MB } |
-            Sort-Object Length -Descending |
-            Select-Object -First 1
+        $roots = @(
+            (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"),
+            "C:\ProgramData\chocolatey\lib",
+            "$env:ProgramFiles\ffmpeg",
+            "${env:ProgramFiles}\chocolatey"
+        ) | Where-Object { $_ -and (Test-Path $_) }
+        $real = foreach ($root in $roots) {
+            Get-ChildItem $root -Recurse -Filter "$Name.exe" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Length -ge 20MB }
+        }
+        $real = $real | Sort-Object Length -Descending | Select-Object -First 1
         if ($real) { return $real.FullName }
-        throw "$Name nel PATH è uno stub ($($item.Length) byte): $path. Installa Gyan.FFmpeg e usa il binario reale."
+        throw "$Name nel PATH è uno stub ($($item.Length) byte): $path. Serve il binario reale (>20 MB), non lo shim Chocolatey/WinGet."
     }
     return $path
 }
