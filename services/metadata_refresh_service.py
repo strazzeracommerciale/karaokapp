@@ -9,6 +9,7 @@ from typing import Literal
 
 from engines.ytdlp_engine import YtdlpEngine
 from services.metadata_refresh_models import TrackRefreshOutcome
+from services.song_catalog import lookup_confirmed_song, lookup_song_in_title
 from utils.text import build_download_basename
 from utils.track_metadata import resolve_artist_title
 
@@ -39,10 +40,14 @@ class MetadataRefreshService:
         conn: sqlite3.Connection,
         ytdlp: YtdlpEngine | None = None,
         artist_registry: object | None = None,
+        catalog: Callable[[str, str], tuple[str, str] | None] | None = None,
+        title_lookup: Callable[[str], tuple[str, str] | None] | None = None,
     ) -> None:
         self._conn = conn
         self._ytdlp = ytdlp or YtdlpEngine()
         self._artist_registry = artist_registry
+        self._catalog = lookup_confirmed_song if catalog is None else catalog
+        self._title_lookup = lookup_song_in_title if title_lookup is None else title_lookup
 
     def refresh_all(
         self,
@@ -164,9 +169,22 @@ class MetadataRefreshService:
         if metadata and metadata.get("title"):
             raw_title = metadata["title"]
 
-        artist, title = resolve_artist_title(
-            raw_title, metadata, registry=self._artist_registry
-        )
+        confirmed = False
+        artist, title = "", ""
+        if not parse_only and raw_title and self._title_lookup is not None:
+            found = self._title_lookup(raw_title)
+            if found is not None:
+                artist, title = found
+                confirmed = True
+        if not confirmed:
+            artist, title = resolve_artist_title(
+                raw_title, metadata, registry=self._artist_registry
+            )
+            if not parse_only and artist and title and self._catalog is not None:
+                catalog_match = self._catalog(artist, title)
+                if catalog_match is not None:
+                    artist, title = catalog_match
+                    confirmed = True
         if not title:
             logger.warning("Titolo vuoto dopo parsing: track_id=%s", row["id"])
             return TrackRefreshOutcome(
@@ -195,6 +213,13 @@ class MetadataRefreshService:
                 new_path = candidate
 
         if not metadata_changed and not file_needs_rename and not needs_yt_id_update:
+            if confirmed and not dry_run:
+                with self._conn:
+                    self._conn.execute(
+                        "UPDATE tracks SET metadata_confirmed = 1, "
+                        "metadata_confirmed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (row["id"],),
+                    )
             return TrackRefreshOutcome(
                 track_id=row["id"],
                 status="unchanged",
@@ -248,12 +273,22 @@ class MetadataRefreshService:
             logger.info("File rinominato: %s → %s", path.name, new_path.name)
 
         with self._conn:
-            self._conn.execute(
-                "UPDATE tracks SET title = ?, artist = ?, youtube_id = COALESCE(?, youtube_id), "
-                "local_path = ?, metadata_confirmed = 0, metadata_confirmed_at = NULL "
-                "WHERE id = ?",
-                (title, artist, youtube_id, str(new_path), row["id"]),
-            )
+            if confirmed:
+                self._conn.execute(
+                    "UPDATE tracks SET title = ?, artist = ?, "
+                    "youtube_id = COALESCE(?, youtube_id), "
+                    "local_path = ?, metadata_confirmed = 1, "
+                    "metadata_confirmed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (title, artist, youtube_id, str(new_path), row["id"]),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE tracks SET title = ?, artist = ?, "
+                    "youtube_id = COALESCE(?, youtube_id), "
+                    "local_path = ?, metadata_confirmed = 0, metadata_confirmed_at = NULL "
+                    "WHERE id = ?",
+                    (title, artist, youtube_id, str(new_path), row["id"]),
+                )
 
         final_status = "renamed" if file_needs_rename else "updated"
         return TrackRefreshOutcome(

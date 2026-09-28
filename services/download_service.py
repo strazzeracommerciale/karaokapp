@@ -10,6 +10,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 import config
 from engines.ytdlp_engine import YtdlpEngine
+from services.song_catalog import lookup_song_in_title
 from utils.text import build_download_basename
 from utils.track_metadata import resolve_artist_title
 
@@ -81,9 +82,15 @@ class _DownloadWorker(QThread):
                     try:
                         metadata = self._ytdlp.extract_metadata(youtube_id)
                         raw_title = metadata.get("title", title)
-                        artist, song_title = resolve_artist_title(
-                            raw_title, metadata, registry=self._artist_registry
-                        )
+                        found = lookup_song_in_title(raw_title)
+                        if found is not None:
+                            artist, song_title = found
+                            metadata_confirmed = True
+                        else:
+                            artist, song_title = resolve_artist_title(
+                                raw_title, metadata, registry=self._artist_registry
+                            )
+                            metadata_confirmed = False
                         basename = build_download_basename(artist, song_title, youtube_id)
                         file_path = self._ytdlp.download(
                             youtube_id,
@@ -100,6 +107,7 @@ class _DownloadWorker(QThread):
                             track_type,
                             artist=artist or None,
                             song_title=song_title or raw_title,
+                            metadata_confirmed=metadata_confirmed,
                         )
                         last_error = None
                         break
@@ -134,13 +142,14 @@ class _DownloadWorker(QThread):
         track_type: TrackType,
         artist: str | None = None,
         song_title: str | None = None,
+        metadata_confirmed: bool = False,
     ) -> dict:
         """Salva track e log download nel database."""
         db_title = song_title or metadata.get("title", title)
-        db_artist = artist or metadata.get("uploader")
+        db_artist = artist or None
         with self._conn:
             existing = self._conn.execute(
-                "SELECT id, track_type FROM tracks WHERE youtube_id = ?",
+                "SELECT id, track_type, metadata_confirmed FROM tracks WHERE youtube_id = ?",
                 (youtube_id,),
             ).fetchone()
             if existing:
@@ -150,24 +159,53 @@ class _DownloadWorker(QThread):
                         f"{existing['track_type']}, non come {track_type}"
                     )
                 track_id = existing["id"]
-                self._conn.execute(
-                    "UPDATE tracks SET local_path = ?, title = ?, artist = ? WHERE id = ?",
-                    (file_path, db_title, db_artist, track_id),
-                )
+                if existing["metadata_confirmed"]:
+                    self._conn.execute(
+                        "UPDATE tracks SET local_path = ? WHERE id = ?",
+                        (file_path, track_id),
+                    )
+                elif metadata_confirmed:
+                    self._conn.execute(
+                        "UPDATE tracks SET local_path = ?, title = ?, artist = ?, "
+                        "metadata_confirmed = 1, metadata_confirmed_at = CURRENT_TIMESTAMP "
+                        "WHERE id = ?",
+                        (file_path, db_title, db_artist, track_id),
+                    )
+                else:
+                    self._conn.execute(
+                        "UPDATE tracks SET local_path = ?, title = ?, artist = ? WHERE id = ?",
+                        (file_path, db_title, db_artist, track_id),
+                    )
             else:
-                cursor = self._conn.execute(
-                    """INSERT INTO tracks
-                       (title, artist, youtube_id, local_path, source, duration_sec, track_type)
-                       VALUES (?, ?, ?, ?, 'youtube', ?, ?)""",
-                    (
-                        db_title,
-                        db_artist,
-                        youtube_id,
-                        file_path,
-                        metadata.get("duration"),
-                        track_type,
-                    ),
-                )
+                if metadata_confirmed:
+                    cursor = self._conn.execute(
+                        """INSERT INTO tracks
+                           (title, artist, youtube_id, local_path, source, duration_sec,
+                            track_type, metadata_confirmed, metadata_confirmed_at)
+                           VALUES (?, ?, ?, ?, 'youtube', ?, ?, 1, CURRENT_TIMESTAMP)""",
+                        (
+                            db_title,
+                            db_artist,
+                            youtube_id,
+                            file_path,
+                            metadata.get("duration"),
+                            track_type,
+                        ),
+                    )
+                else:
+                    cursor = self._conn.execute(
+                        """INSERT INTO tracks
+                           (title, artist, youtube_id, local_path, source, duration_sec, track_type)
+                           VALUES (?, ?, ?, ?, 'youtube', ?, ?)""",
+                        (
+                            db_title,
+                            db_artist,
+                            youtube_id,
+                            file_path,
+                            metadata.get("duration"),
+                            track_type,
+                        ),
+                    )
                 track_id = cursor.lastrowid
             self._conn.execute(
                 """INSERT INTO download_log (track_id, trigger, status, downloaded_at)

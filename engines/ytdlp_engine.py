@@ -125,7 +125,7 @@ class YtdlpEngine:
             info = ydl.extract_info(url, download=False)
         return {
             "title": info.get("title", ""),
-            "artist": info.get("artist") or info.get("creator") or "",
+            "artist": info.get("artist") or "",
             "track": info.get("track") or "",
             "creator": info.get("creator") or info.get("uploader", ""),
             "uploader": info.get("uploader", ""),

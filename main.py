@@ -139,7 +139,7 @@ def _refresh_metadata(args: argparse.Namespace) -> int:
         rename_files=args.refresh_rename_files,
         parse_only=args.refresh_parse_only,
         dry_run=args.refresh_dry_run,
-        skip_confirmed=False,
+        skip_confirmed=True,
     )
     db_core.close()
     mode = "simulazione" if args.refresh_dry_run else "completato"
@@ -440,6 +440,12 @@ def main() -> int:
         lambda: _toggle_dj_console(dj_console_window)
     )
     main_window.prep_toggle_requested.connect(lambda: _toggle_prep_window(prep_window))
+    main_window.export_library_requested.connect(
+        lambda: prep_window.export_library_dialog(main_window)
+    )
+    main_window.import_library_requested.connect(
+        lambda: prep_window.import_library_dialog(main_window)
+    )
     prep_window.library_changed.connect(main_window.on_library_data_changed)
     dj_console_window.dj_filler_track_requested.connect(main_window.apply_dj_filler_track)
 

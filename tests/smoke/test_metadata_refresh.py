@@ -78,7 +78,13 @@ def test_refresh_updates_db_and_renames() -> None:
 
         registry = ArtistRegistryService(conn)
         registry.register("Robbie Williams", source="seed")
-        service = MetadataRefreshService(conn, ytdlp=ytdlp, artist_registry=registry)
+        service = MetadataRefreshService(
+            conn,
+            ytdlp=ytdlp,
+            artist_registry=registry,
+            catalog=lambda _artist, _title: None,
+            title_lookup=lambda _raw: None,
+        )
         stats = service.refresh_all(rename_files=True)
 
         assert stats["metadata_updated"] + stats["files_renamed"] == 1

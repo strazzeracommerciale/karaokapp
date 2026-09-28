@@ -232,6 +232,25 @@ def test_theme_switch_light_and_dark() -> None:
     window.close()
 
 
+def test_menu_bar_file_view_help() -> None:
+    """La barra in alto espone File, Visualizza e Aiuto con le voci principali."""
+    window = _make_window()
+    titles = [action.text().replace("&", "") for action in window.menuBar().actions()]
+    assert titles == ["File", "Visualizza", "Aiuto"]
+    file_labels = [
+        action.text()
+        for action in window.menuBar().actions()[0].menu().actions()
+        if not action.isSeparator()
+    ]
+    assert "Importa libreria..." in file_labels
+    assert "Esporta libreria..." in file_labels
+    assert "Esci" in file_labels
+    help_labels = [action.text() for action in window.menuBar().actions()[2].menu().actions()]
+    assert "Informazioni" in help_labels
+    assert window._theme_light_action.isChecked() or window._theme_dark_action.isChecked()
+    window.close()
+
+
 def _run_all() -> None:
     """Esegue tutti i test e segnala errori."""
     tests = [
@@ -245,6 +264,7 @@ def _run_all() -> None:
         test_preview_shortcut_works_while_search_focused,
         test_vlc_resize_callback_invoked,
         test_theme_switch_light_and_dark,
+        test_menu_bar_file_view_help,
     ]
     failed = 0
     for test in tests:

@@ -13,6 +13,8 @@ può essere infallibile sui nomi più irregolari.
 
 import re
 
+from utils.name_normalize import normalize_name
+
 _NOISE_PATTERNS = [
     r"\bkaraoke\b",
     r"\bkaraok[eé]\b",
@@ -70,8 +72,81 @@ _KNOWN_CHANNEL_PREFIXES = frozenset(
         "Zoom Karaoke",
         "ProSound",
         "KaraFun",
+        "Karaoke Academy",
+        "Karaoke Italiano",
     )
 )
+_SOURCE_TAIL_RE = re.compile(r"^(from|by)\b", re.IGNORECASE)
+_CHANNEL_SEGMENT_KEYS = frozenset(
+    {
+        "zoom",
+        "karafun",
+        "sing king",
+        "party tyme",
+        "prosound",
+        "karaoke academy",
+        "karaoke italiano",
+        "sunfly",
+        "mr entertainer",
+        "cantatube",
+    }
+)
+_SEARCH_NOISE = (
+    r"\bacademy\s+italia\b",
+    r"\bacademy\b",
+    r"\bdemo\b",
+    r"\boriginal\s+key\b",
+    r"\bno\s+guide\s+melody\b",
+    r"\bcori\s+originali\b",
+    r"\bsongs?\s+with\b",
+)
+
+
+def _strip_decorations(text: str) -> str:
+    """Toglie emoji e spazi lasciati dai titoli dei canali karaoke."""
+    cleaned = _EMOJI_RE.sub(" ", text or "")
+    return _WS_RE.sub(" ", cleaned).strip(_STRIP_CHARS)
+
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"
+    "\u2600-\u27BF"
+    "\uFE0F"
+    "]+"
+)
+
+
+def searchable_title(raw: str) -> str:
+    """Testo da cercare nel catalogo: tiene artista e titolo, toglie il rumore karaoke."""
+    text = _strip_decorations(raw or "")
+    text = _EXT_RE.sub("", text)
+    text = re.sub(r"\[[^\]]*\]", " ", text)
+    text = re.sub(r"[()]", " ", text)
+    for pattern in _NOISE_PATTERNS:
+        text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+    for pattern in _SEARCH_NOISE:
+        text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+    for channel in _CHANNEL_SEGMENT_KEYS:
+        text = re.sub(rf"\b{re.escape(channel)}\b", " ", text, flags=re.IGNORECASE)
+    return _WS_RE.sub(" ", text).strip(_STRIP_CHARS)
+
+
+def _useful_segments(parts: list[str]) -> list[str]:
+    """Toglie code di canale («from Zoom») e lascia almeno un segmento."""
+    useful: list[str] = []
+    for segment in parts:
+        cleaned = segment.strip()
+        if not cleaned:
+            continue
+        if _SOURCE_TAIL_RE.match(cleaned):
+            continue
+        if cleaned.lower() in _KNOWN_CHANNEL_PREFIXES:
+            continue
+        if normalize_name(cleaned) in _CHANNEL_SEGMENT_KEYS:
+            continue
+        useful.append(cleaned)
+    return useful or parts
 
 
 def parse_artist_title(
@@ -79,16 +154,41 @@ def parse_artist_title(
     registry: object | None = None,
 ) -> tuple[str, str]:
     """Estrae (artista, titolo) da un titolo YouTube/file karaoke."""
-    parts = _title_segments(raw)
+    parts = _useful_segments(_title_segments(raw))
+    parenthetical_artist = ""
+    if registry is not None and hasattr(registry, "match"):
+        for group in re.findall(r"\(([^)]+)\)", raw or ""):
+            match = registry.match(group.strip())
+            if match:
+                parenthetical_artist = match
+                break
+    if (
+        len(parts) >= 3
+        and registry is not None
+        and hasattr(registry, "match")
+    ):
+        last_artist = registry.match(parts[-1])
+        first_artist = registry.match(parts[0])
+        if last_artist and not first_artist:
+            middle = " ".join(parts[1:-1]).strip()
+            if middle:
+                return _strip_decorations(last_artist), _strip_decorations(middle)
     if len(parts) >= 2:
-        first, second = parts[0], parts[-1]
+        first, second = parts[0], parts[1]
         if registry is not None and hasattr(registry, "disambiguate"):
-            return registry.disambiguate(first, second)
+            artist, title = registry.disambiguate(first, second)
+            return _strip_decorations(artist), _strip_decorations(title)
         if first.lower() in _KNOWN_CHANNEL_PREFIXES:
-            return "", second
-        return first, second
+            return "", _strip_decorations(second)
+        return _strip_decorations(first), _strip_decorations(second)
     if len(parts) == 1:
-        return "", parts[0]
+        if registry is not None and hasattr(registry, "split_leading_artist"):
+            split = registry.split_leading_artist(parts[0])
+            if split is not None:
+                return _strip_decorations(split[0]), _strip_decorations(split[1])
+        if parenthetical_artist:
+            return parenthetical_artist, _strip_decorations(parts[0])
+        return "", _strip_decorations(parts[0])
     cleaned = _WS_RE.sub(" ", raw or "").strip(_STRIP_CHARS)
     return "", cleaned
 

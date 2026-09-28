@@ -155,10 +155,38 @@ class ArtistRegistryService:
         best_name: str | None = None
         best_score = 0
         for key, display in self._by_normalized.items():
-            score = fuzz.token_set_ratio(normalized_key, key)
+            set_score = fuzz.token_set_ratio(normalized_key, key)
+            sort_score = fuzz.token_sort_ratio(normalized_key, key)
+            score = min(set_score, sort_score)
             if score > best_score:
                 best_score = score
                 best_name = display
         if best_score >= config.ARTIST_MATCH_THRESHOLD:
             return best_name
         return None
+
+    def split_leading_artist(self, text: str) -> tuple[str, str] | None:
+        """Se il testo inizia con un artista noto, separa artista e titolo."""
+        words = normalize_name(text).split()
+        if len(words) < 2:
+            return None
+        best_name: str | None = None
+        best_len = 0
+        for key, display in self._by_normalized.items():
+            key_words = key.split()
+            if not key_words or len(key_words) >= len(words):
+                continue
+            if len(key.replace(" ", "")) < 3:
+                continue
+            if words[: len(key_words)] == key_words and len(key_words) > best_len:
+                best_name = display
+                best_len = len(key_words)
+        if best_name is None:
+            return None
+        original_words = text.split()
+        if len(original_words) <= best_len:
+            return None
+        title = " ".join(original_words[best_len:]).strip()
+        if not title:
+            return None
+        return best_name, title

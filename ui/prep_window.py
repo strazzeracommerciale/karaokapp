@@ -327,12 +327,19 @@ class PrepWindow(QWidget):
         if self._last_query:
             self._dispatch_search()
 
+    def export_library_dialog(self, parent: QWidget | None = None) -> None:
+        """Apre il dialogo di esportazione. Il parent può essere la finestra principale."""
+        self._export_library(parent or self)
+
     def _on_export_library(self) -> None:
+        self._export_library(self)
+
+    def _export_library(self, parent: QWidget) -> None:
         if self._transfer is None:
-            QMessageBox.information(self, "Esporta libreria", "Funzione non disponibile.")
+            QMessageBox.information(parent, "Esporta libreria", "Funzione non disponibile.")
             return
         dest = QFileDialog.getExistingDirectory(
-            self,
+            parent,
             "Esporta libreria — seleziona cartella destinazione (es. chiavetta USB)",
             "",
         )
@@ -342,10 +349,10 @@ class PrepWindow(QWidget):
             result = self._transfer.export_library(Path(dest))
         except Exception as exc:
             logger.exception("Esportazione libreria fallita")
-            QMessageBox.critical(self, "Esporta libreria", f"Esportazione non riuscita:\n\n{exc}")
+            QMessageBox.critical(parent, "Esporta libreria", f"Esportazione non riuscita:\n\n{exc}")
             return
         QMessageBox.information(
-            self,
+            parent,
             "Esporta libreria",
             "Esportazione completata.\n\n"
             f"Cartella: {result['bundle_path']}\n"
@@ -353,19 +360,26 @@ class PrepWindow(QWidget):
             f"File media copiati: {result['files']}",
         )
 
+    def import_library_dialog(self, parent: QWidget | None = None) -> None:
+        """Apre il dialogo di importazione. Il parent può essere la finestra principale."""
+        self._import_library(parent or self)
+
     def _on_import_library(self) -> None:
+        self._import_library(self)
+
+    def _import_library(self, parent: QWidget) -> None:
         if self._transfer is None:
-            QMessageBox.information(self, "Importa libreria", "Funzione non disponibile.")
+            QMessageBox.information(parent, "Importa libreria", "Funzione non disponibile.")
             return
         source = QFileDialog.getExistingDirectory(
-            self,
+            parent,
             "Importa libreria — seleziona cartella «KaraokeManager_libreria» esportata",
             "",
         )
         if not source:
             return
         reply = QMessageBox.question(
-            self,
+            parent,
             "Importa libreria",
             "Integrare i brani e le scalette dal bundle selezionato?\n\n"
             "I duplicati (stesso id YouTube) verranno saltati. "
@@ -379,13 +393,13 @@ class PrepWindow(QWidget):
             stats = self._transfer.import_library(Path(source))
         except Exception as exc:
             logger.exception("Importazione libreria fallita")
-            QMessageBox.critical(self, "Importa libreria", f"Importazione non riuscita:\n\n{exc}")
+            QMessageBox.critical(parent, "Importa libreria", f"Importazione non riuscita:\n\n{exc}")
             return
         self._refresh_library()
         self._refresh_playlists()
         self.library_changed.emit()
         QMessageBox.information(
-            self,
+            parent,
             "Importa libreria",
             "Importazione completata.\n\n"
             f"Brani aggiunti: {stats['tracks_added']}\n"

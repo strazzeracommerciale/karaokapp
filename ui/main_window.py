@@ -69,6 +69,8 @@ class MainWindow(QMainWindow):
     external_toggle_requested = pyqtSignal(bool)
     dj_console_toggle_requested = pyqtSignal()
     prep_toggle_requested = pyqtSignal()
+    export_library_requested = pyqtSignal()
+    import_library_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -128,6 +130,8 @@ class MainWindow(QMainWindow):
         else:
             self._theme_light_btn.setVisible(False)
             self._theme_dark_btn.setVisible(False)
+            self._theme_light_action.setVisible(False)
+            self._theme_dark_action.setVisible(False)
         self._refresh_library()
         self._refresh_playlists()
         app = QApplication.instance()
@@ -164,6 +168,7 @@ class MainWindow(QMainWindow):
         self._update_service = service
         visible = service is not None
         self._update_btn.setVisible(visible)
+        self._update_action.setVisible(visible)
         if service is None:
             return
         service.update_available.connect(self._on_update_available)
@@ -192,8 +197,57 @@ class MainWindow(QMainWindow):
         """Restituisce il widget coda per il wiring esterno."""
         return self._queue_widget
 
+    def _build_menu(self) -> None:
+        """Barra classica: File, Visualizza, Aiuto. I pulsanti della serata restano sotto."""
+        bar = self.menuBar()
+        file_menu = bar.addMenu("File")
+        browse = file_menu.addAction("Sfoglia libreria")
+        browse.triggered.connect(self._on_browse_library)
+        file_menu.addSeparator()
+        export_action = file_menu.addAction("Esporta libreria...")
+        export_action.triggered.connect(self.export_library_requested.emit)
+        import_action = file_menu.addAction("Importa libreria...")
+        import_action.triggered.connect(self.import_library_requested.emit)
+        file_menu.addSeparator()
+        quit_action = file_menu.addAction("Esci")
+        quit_action.triggered.connect(self.close)
+
+        view_menu = bar.addMenu("Visualizza")
+        self._theme_light_action = view_menu.addAction("Tema chiaro")
+        self._theme_light_action.setCheckable(True)
+        self._theme_light_action.triggered.connect(self._on_theme_light_clicked)
+        self._theme_dark_action = view_menu.addAction("Tema scuro")
+        self._theme_dark_action.setCheckable(True)
+        self._theme_dark_action.triggered.connect(self._on_theme_dark_clicked)
+        view_menu.addSeparator()
+        self._external_action = view_menu.addAction("Monitor esterno")
+        self._external_action.setCheckable(True)
+        self._external_action.setEnabled(False)
+        self._external_action.toggled.connect(self._on_external_toggled)
+        view_menu.addSeparator()
+        dj_action = view_menu.addAction("Consolle DJ")
+        dj_action.triggered.connect(self._on_dj_console_toggle)
+        prep_action = view_menu.addAction("Preparazione")
+        prep_action.triggered.connect(self._on_prep_toggle)
+
+        help_menu = bar.addMenu("Aiuto")
+        self._update_action = help_menu.addAction("Cerca aggiornamenti")
+        self._update_action.setVisible(False)
+        self._update_action.triggered.connect(self._on_update_clicked)
+        about_action = help_menu.addAction("Informazioni")
+        about_action.triggered.connect(self._on_about)
+
+    def _on_about(self) -> None:
+        """Mostra nome e versione dell'applicazione."""
+        QMessageBox.about(
+            self,
+            "Informazioni",
+            f"<b>{config.APP_NAME}</b><br>Versione {config.APP_VERSION}",
+        )
+
     def _build_ui(self) -> None:
         """Assembla layout principale: anteprima | catalogo | coda + player in basso."""
+        self._build_menu()
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
@@ -790,6 +844,12 @@ class MainWindow(QMainWindow):
         light_active = theme == config.UI_THEME_LIGHT
         self._theme_light_btn.setChecked(light_active)
         self._theme_dark_btn.setChecked(not light_active)
+        self._theme_light_action.blockSignals(True)
+        self._theme_dark_action.blockSignals(True)
+        self._theme_light_action.setChecked(light_active)
+        self._theme_dark_action.setChecked(not light_active)
+        self._theme_light_action.blockSignals(False)
+        self._theme_dark_action.blockSignals(False)
         self._theme_light_btn.setObjectName("themeToggleActive" if light_active else "themeToggle")
         self._theme_dark_btn.setObjectName("themeToggleActive" if not light_active else "themeToggle")
         self._theme_light_btn.style().unpolish(self._theme_light_btn)
@@ -836,6 +896,7 @@ class MainWindow(QMainWindow):
         """Abilita il pulsante solo se è presente un secondo schermo."""
         self._external_available = available
         self._external_btn.setEnabled(available)
+        self._external_action.setEnabled(available)
         self._external_btn.setToolTip(
             "" if available else "Nessun secondo schermo rilevato"
         )
@@ -849,6 +910,10 @@ class MainWindow(QMainWindow):
             self._external_btn.setChecked(checked)
             self._external_btn.blockSignals(False)
             self._external_btn.setText(f"Monitor esterno: {'ON' if checked else 'OFF'}")
+        if self._external_action.isChecked() != checked:
+            self._external_action.blockSignals(True)
+            self._external_action.setChecked(checked)
+            self._external_action.blockSignals(False)
 
     def _on_external_toggled(self, checked: bool) -> None:
         """Accende/spegne il monitor esterno e aggiorna l'etichetta del pulsante."""
@@ -856,6 +921,14 @@ class MainWindow(QMainWindow):
             self.set_external_checked(False)
             return
         self._external_btn.setText(f"Monitor esterno: {'ON' if checked else 'OFF'}")
+        if self._external_btn.isChecked() != checked:
+            self._external_btn.blockSignals(True)
+            self._external_btn.setChecked(checked)
+            self._external_btn.blockSignals(False)
+        if self._external_action.isChecked() != checked:
+            self._external_action.blockSignals(True)
+            self._external_action.setChecked(checked)
+            self._external_action.blockSignals(False)
         self.external_toggle_requested.emit(checked)
 
     def _on_filler_choose(self) -> None:

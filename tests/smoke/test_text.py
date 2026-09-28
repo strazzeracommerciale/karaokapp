@@ -64,6 +64,29 @@ def test_parse_artist_title() -> None:
         "Albachiara",
     )
     assert parse_artist_title("Albachiara (Karaoke)") == ("", "Albachiara")
+    assert parse_artist_title(
+        "Justin Timberlake - Can't Stop The Feeling - Karaoke Version from Zoom Karaoke"
+    ) == ("Justin Timberlake", "Can't Stop The Feeling")
+    registry.register("Nomadi", source="seed")
+    registry.register("Nek", source="seed")
+    registry.register("Elton John", source="seed")
+    registry.register("Articolo 31", source="seed")
+    assert parse_artist_title(
+        "Karaoke Italiano - Io voglio vivere - Nomadi ( Testo )",
+        registry=registry,
+    ) == ("Nomadi", "Io voglio vivere")
+    assert parse_artist_title(
+        "Your Song - Elton John | Karaoke Version | KaraFun",
+        registry=registry,
+    ) == ("Elton John", "Your Song")
+    assert parse_artist_title(
+        "Nek   Se io non avessi te karaoke",
+        registry=registry,
+    ) == ("Nek", "Se io non avessi te")
+    assert parse_artist_title(
+        "| CantaTube | LA MIA RAGAZZA MENA - karaoke (Articolo 31)",
+        registry=registry,
+    ) == ("Articolo 31", "LA MIA RAGAZZA MENA")
 
 
 def test_format_track_display() -> None:
